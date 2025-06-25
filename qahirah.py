@@ -9,75 +9,71 @@ where this makes sense; for example, instead of Context.get_line_width()
 and Context.set_line_width() calls, there is a Context.line_width property
 that may be read and written.
 """
-#+
+# +
 # Copyright 2015-2017 Lawrence D'Oliveiro <ldo@geek-central.gen.nz>.
 # Licensed under the GNU Lesser General Public License v2.1 or later.
-#-
+# -
 
-import math
-from types import \
-    FunctionType
-from numbers import \
-    Real
-from collections import \
-    namedtuple
-import io
-import colorsys
 import array
-import ctypes as ct
-from weakref import \
-    WeakValueDictionary
 import atexit
+import colorsys
+import ctypes as ct
+import io
+import math
 import sys
-try :
-    import fontconfig
-      # my Fontconfig wrapper, get from <https://github.com/ldo/python_fontconfig>
-except ImportError :
-    fontconfig = None
-#end try
-try :
-    import freetype2
-      # my FreeType wrapper, get from <https://github.com/ldo/python_freetype>
-except ImportError :
-    freetype2 = None
-#end try
+from collections import namedtuple
+from numbers import Real
+from types import FunctionType
+from weakref import WeakValueDictionary
 
-if sys.platform == 'win32':
-    cairo = ct.cdll.LoadLibrary('libcairo-2.dll')
-elif sys.platform == 'darwin':
-    cairo = ct.cdll.LoadLibrary('libcairo.2.dylib')
+try:
+    import fontconfig
+# my Fontconfig wrapper, get from <https://github.com/ldo/python_fontconfig>
+except ImportError:
+    fontconfig = None
+# end try
+try:
+    import freetype2
+# my FreeType wrapper, get from <https://github.com/ldo/python_freetype>
+except ImportError:
+    freetype2 = None
+# end try
+
+if sys.platform == "win32":
+    cairo = ct.cdll.LoadLibrary("libcairo-2.dll")
+elif sys.platform == "darwin":
+    cairo = ct.cdll.LoadLibrary("libcairo.2.dylib")
 else:
     cairo = ct.cdll.LoadLibrary("libcairo.so.2")
 
-if freetype2 == None :
-    if sys.platform == 'win32':
-        _ft = ct.cdll.LoadLibrary('freetype6.dll')
-    elif sys.platform == 'darwin':
-        _ft = ct.cdll.LoadLibrary('libfreetype.6.dylib')
+if freetype2 is None:
+    if sys.platform == "win32":
+        _ft = ct.cdll.LoadLibrary("freetype6.dll")
+    elif sys.platform == "darwin":
+        _ft = ct.cdll.LoadLibrary("libfreetype.6.dylib")
     else:
         _ft = ct.cdll.LoadLibrary("libfreetype.so.6")
-if fontconfig == None :
-    try :
-        if sys.platform == 'win32':
-            _fc = ct.cdll.LoadLibrary('libfontconfig-1.dll')
-        elif sys.platform == 'darwin':
-            _fc = ct.cdll.LoadLibrary('libfontconfig.1.dylib')
+if fontconfig is None:
+    try:
+        if sys.platform == "win32":
+            _fc = ct.cdll.LoadLibrary("libfontconfig-1.dll")
+        elif sys.platform == "darwin":
+            _fc = ct.cdll.LoadLibrary("libfontconfig.1.dylib")
         else:
             _fc = ct.cdll.LoadLibrary("libfontconfig.so.1")
-    except OSError as fail :
-        if True : # if fail.errno == 2 : # ENOENT
-          # no point checking, because it is None! (Bug?)
+    except OSError:
+        if True:  # if fail.errno == 2 : # ENOENT
+            # no point checking, because it is None! (Bug?)
             _fc = None
-        else :
+        else:
             raise
-        #end if
-    #end try
-#end if
+        # end if
+    # end try
+# end if
 
-class CAIRO :
-    "useful definitions adapted from cairo.h. You will need to use the constants," \
-    " but apart from that, see the more Pythonic wrappers defined outside this" \
-    " class in preference to accessing low-level structures directly."
+
+class CAIRO:
+    "useful definitions adapted from cairo.h. You will need to use the constants, but apart from that, see the more Pythonic wrappers defined outside this class in preference to accessing low-level structures directly."
 
     # General ctypes gotcha: when passing addresses of ctypes-constructed objects
     # to routine calls, do not construct the objects directly in the call. Otherwise
@@ -231,17 +227,17 @@ class CAIRO :
     OPERATOR_HSL_COLOUR = 27
     OPERATOR_HSL_LUMINOSITY = 28
 
-    class matrix_t(ct.Structure) :
-        _fields_ = \
-            [
-                ("xx", ct.c_double),
-                ("yx", ct.c_double),
-                ("xy", ct.c_double),
-                ("yy", ct.c_double),
-                ("x0", ct.c_double),
-                ("y0", ct.c_double),
-            ]
-    #end matrix_t
+    class matrix_t(ct.Structure):
+        _fields_ = [
+            ("xx", ct.c_double),
+            ("yx", ct.c_double),
+            ("xy", ct.c_double),
+            ("yy", ct.c_double),
+            ("x0", ct.c_double),
+            ("y0", ct.c_double),
+        ]
+
+    # end matrix_t
 
     # cairo_antialias_t codes
     ANTIALIAS_DEFAULT = 0
@@ -295,78 +291,77 @@ class CAIRO :
     PATH_CLOSE_PATH = 3
     path_data_type_t = ct.c_uint
 
-    class path_data_t(ct.Union) :
-
-        class header_t(ct.Structure) :
+    class path_data_t(ct.Union):
+        class header_t(ct.Structure):
             "followed by header_t.length point_t structs."
-            _fields_ = \
-                [
-                    ("type", ct.c_uint), # path_data_type_t
-                    ("length", ct.c_int), # number of following points
-                ]
-        #end header_t
+
+            _fields_ = [
+                ("type", ct.c_uint),  # path_data_type_t
+                ("length", ct.c_int),  # number of following points
+            ]
+
+        # end header_t
         header_ptr_t = ct.POINTER(header_t)
 
-        class point_t(ct.Structure) :
-            _fields_ = \
-                [
-                    ("x", ct.c_double),
-                    ("y", ct.c_double),
-                ]
-        #end point_t
-        point_ptr_t = ct.POINTER(point_t)
-
-        _fields_ = \
-            [
-                ("header", header_t),
-                ("point" , point_t),
-            ]
-
-    #end path_data_t
-    path_data_t_ptr = ct.POINTER(path_data_t)
-
-    class path_t(ct.Structure) :
-        pass
-    path_t._fields_ = \
-        [
-            ("status", status_t),
-            ("data", ct.c_void_p), # path_data_t_ptr
-            ("num_data", ct.c_int), # number of elements in data
-        ]
-    #end path_t
-    path_ptr_t = ct.POINTER(path_t)
-
-    class rectangle_t(ct.Structure) :
-        _fields_ = \
-            [
+        class point_t(ct.Structure):
+            _fields_ = [
                 ("x", ct.c_double),
                 ("y", ct.c_double),
-                ("width", ct.c_double),
-                ("height", ct.c_double),
             ]
-    #end rectangle_t
+
+        # end point_t
+        point_ptr_t = ct.POINTER(point_t)
+
+        _fields_ = [
+            ("header", header_t),
+            ("point", point_t),
+        ]
+
+    # end path_data_t
+    path_data_t_ptr = ct.POINTER(path_data_t)
+
+    class path_t(ct.Structure):
+        pass
+
+    path_t._fields_ = [
+        ("status", status_t),
+        ("data", ct.c_void_p),  # path_data_t_ptr
+        ("num_data", ct.c_int),  # number of elements in data
+    ]
+    # end path_t
+    path_ptr_t = ct.POINTER(path_t)
+
+    class rectangle_t(ct.Structure):
+        _fields_ = [
+            ("x", ct.c_double),
+            ("y", ct.c_double),
+            ("width", ct.c_double),
+            ("height", ct.c_double),
+        ]
+
+    # end rectangle_t
     rectangle_ptr_t = ct.POINTER(rectangle_t)
 
-    class rectangle_list_t(ct.Structure) :
+    class rectangle_list_t(ct.Structure):
         pass
-    rectangle_list_t._fields_ = \
-        [
-            ("status", status_t),
-            ("rectangles", rectangle_ptr_t),
-            ("num_rectangles", ct.c_int),
-        ]
-    #end rectangle_list_t
+
+    rectangle_list_t._fields_ = [
+        ("status", status_t),
+        ("rectangles", rectangle_ptr_t),
+        ("num_rectangles", ct.c_int),
+    ]
+    # end rectangle_list_t
     rectangle_list_ptr_t = ct.POINTER(rectangle_list_t)
 
-    class rectangle_int_t(ct.Structure) :
-        _fields_ = \
-            [
-                ("x", ct.c_int),
-                ("y", ct.c_int),
-                ("width", ct.c_int),
-                ("height", ct.c_int),
-            ]
-    #end rectangle_int_t
+    class rectangle_int_t(ct.Structure):
+        _fields_ = [
+            ("x", ct.c_int),
+            ("y", ct.c_int),
+            ("width", ct.c_int),
+            ("height", ct.c_int),
+        ]
+
+    # end rectangle_int_t
     rectangle_int_ptr_t = ct.POINTER(rectangle_int_t)
 
     # codes for cairo_region_overlap_t
@@ -374,23 +369,23 @@ class CAIRO :
     REGION_OVERLAP_OUT = 1
     REGION_OVERLAP_PART = 2
 
-    class glyph_t(ct.Structure) :
-        _fields_ = \
-            [
-                ("index", ct.c_ulong), # glyph index
-                ("x", ct.c_double), # position relative to origin
-                ("y", ct.c_double),
-            ]
-    #end glyph_t
+    class glyph_t(ct.Structure):
+        _fields_ = [
+            ("index", ct.c_ulong),  # glyph index
+            ("x", ct.c_double),  # position relative to origin
+            ("y", ct.c_double),
+        ]
+
+    # end glyph_t
     glyph_ptr_t = ct.POINTER(glyph_t)
 
-    class cluster_t(ct.Structure) :
-        _fields_ = \
-            [
-                ("num_bytes", ct.c_int),
-                ("num_glyphs", ct.c_int),
-            ]
-    #end cluster_t
+    class cluster_t(ct.Structure):
+        _fields_ = [
+            ("num_bytes", ct.c_int),
+            ("num_glyphs", ct.c_int),
+        ]
+
+    # end cluster_t
     cluster_ptr_t = ct.POINTER(cluster_t)
 
     # cairo_text_cluster_flags_t codes
@@ -405,35 +400,51 @@ class CAIRO :
 
     destroy_func_t = ct.CFUNCTYPE(None, ct.c_void_p)
 
-    class font_extents_t(ct.Structure) :
-        _fields_ = \
-            [
-                ("ascent", ct.c_double),
-                ("descent", ct.c_double),
-                ("height", ct.c_double),
-                ("max_x_advance", ct.c_double),
-                ("max_y_advance", ct.c_double),
-            ]
-    #end font_extents_t
+    class font_extents_t(ct.Structure):
+        _fields_ = [
+            ("ascent", ct.c_double),
+            ("descent", ct.c_double),
+            ("height", ct.c_double),
+            ("max_x_advance", ct.c_double),
+            ("max_y_advance", ct.c_double),
+        ]
+
+    # end font_extents_t
     font_extents_ptr_t = ct.POINTER(font_extents_t)
 
-    class text_extents_t(ct.Structure) :
-        _fields_ = \
-            [
-                ("x_bearing", ct.c_double),
-                ("y_bearing", ct.c_double),
-                ("width", ct.c_double),
-                ("height", ct.c_double),
-                ("x_advance", ct.c_double),
-                ("y_advance", ct.c_double),
-            ]
-    #end text_extents_t
+    class text_extents_t(ct.Structure):
+        _fields_ = [
+            ("x_bearing", ct.c_double),
+            ("y_bearing", ct.c_double),
+            ("width", ct.c_double),
+            ("height", ct.c_double),
+            ("x_advance", ct.c_double),
+            ("y_advance", ct.c_double),
+        ]
+
+    # end text_extents_t
     text_extents_ptr_t = ct.POINTER(text_extents_t)
 
-    user_scaled_font_init_func_t = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, ct.c_void_p, font_extents_ptr_t)
-    user_scaled_font_render_glyph_func_t = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, ct.c_ulong, ct.c_void_p, text_extents_ptr_t)
-    user_scaled_font_text_to_glyphs_func_t = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, c_ubyte_p, ct.c_int, c_ptr_p, c_int_p, c_ptr_p, c_int_p, c_uint_p)
-    user_scaled_font_unicode_to_glyph_func_t = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, ct.c_ulong, c_ulong_p)
+    user_scaled_font_init_func_t = ct.CFUNCTYPE(
+        ct.c_int, ct.c_void_p, ct.c_void_p, font_extents_ptr_t
+    )
+    user_scaled_font_render_glyph_func_t = ct.CFUNCTYPE(
+        ct.c_int, ct.c_void_p, ct.c_ulong, ct.c_void_p, text_extents_ptr_t
+    )
+    user_scaled_font_text_to_glyphs_func_t = ct.CFUNCTYPE(
+        ct.c_int,
+        ct.c_void_p,
+        c_ubyte_p,
+        ct.c_int,
+        c_ptr_p,
+        c_int_p,
+        c_ptr_p,
+        c_int_p,
+        c_uint_p,
+    )
+    user_scaled_font_unicode_to_glyph_func_t = ct.CFUNCTYPE(
+        ct.c_int, ct.c_void_p, ct.c_ulong, c_ulong_p
+    )
 
     # codes for cairo_font_slant_t
     FONT_SLANT_NORMAL = 0
@@ -478,9 +489,11 @@ class CAIRO :
     SCRIPT_MODE_ASCII = 0
     SCRIPT_MODE_BINARY = 1
 
-#end CAIRO
 
-class XCB :
+# end CAIRO
+
+
+class XCB:
     "minimal needed XCB-related definitions."
 
     # from xproto.h:
@@ -500,207 +513,196 @@ class XCB :
     VISUAL_CLASS_TRUE_COLOR = 4
     VISUAL_CLASS_DIRECT_COLOR = 5
 
-    class visualtype_t(ct.Structure) :
+    class visualtype_t(ct.Structure):
         pass
-    visualtype_t._fields_ = \
-        [
-            ("visual_id", visualid_t),
-            ("_class", ct.c_ubyte),
-            ("bits_per_rgb_value", ct.c_ubyte),
-            ("colormap_entries", ct.c_ushort),
-            ("red_mask", ct.c_uint),
-            ("green_mask", ct.c_uint),
-            ("blue_mask", ct.c_uint),
-            ("pad0", ct.c_ubyte * 4),
-        ]
-    #end visualtype_t
+
+    visualtype_t._fields_ = [
+        ("visual_id", visualid_t),
+        ("_class", ct.c_ubyte),
+        ("bits_per_rgb_value", ct.c_ubyte),
+        ("colormap_entries", ct.c_ushort),
+        ("red_mask", ct.c_uint),
+        ("green_mask", ct.c_uint),
+        ("blue_mask", ct.c_uint),
+        ("pad0", ct.c_ubyte * 4),
+    ]
+    # end visualtype_t
     visualtype_ptr_t = ct.POINTER(visualtype_t)
 
-    class screen_t(ct.Structure) :
+    class screen_t(ct.Structure):
         pass
-    screen_t._fields_ = \
-        [
-            ("root", window_t),
-            ("default_colormap", colormap_t),
-            ("white_pixel", ct.c_uint),
-            ("black_pixel", ct.c_uint),
-            ("current_input_masks", ct.c_uint),
-            ("width_in_pixels", ct.c_ushort),
-            ("height_in_pixels", ct.c_ushort),
-            ("width_in_millimeters", ct.c_ushort),
-            ("height_in_millimeters", ct.c_ushort),
-            ("min_installed_maps", ct.c_ushort),
-            ("max_installed_maps", ct.c_ushort),
-            ("root_visual", visualid_t),
-            ("backing_stores", ct.c_ubyte),
-            ("save_unders", ct.c_ubyte),
-            ("root_depth", ct.c_ubyte),
-            ("allowed_depths_len", ct.c_ubyte),
-        ]
-    #end screen_t
+
+    screen_t._fields_ = [
+        ("root", window_t),
+        ("default_colormap", colormap_t),
+        ("white_pixel", ct.c_uint),
+        ("black_pixel", ct.c_uint),
+        ("current_input_masks", ct.c_uint),
+        ("width_in_pixels", ct.c_ushort),
+        ("height_in_pixels", ct.c_ushort),
+        ("width_in_millimeters", ct.c_ushort),
+        ("height_in_millimeters", ct.c_ushort),
+        ("min_installed_maps", ct.c_ushort),
+        ("max_installed_maps", ct.c_ushort),
+        ("root_visual", visualid_t),
+        ("backing_stores", ct.c_ubyte),
+        ("save_unders", ct.c_ubyte),
+        ("root_depth", ct.c_ubyte),
+        ("allowed_depths_len", ct.c_ubyte),
+    ]
+    # end screen_t
     screen_ptr_t = ct.POINTER(screen_t)
 
     # from xrender.h:
 
     render_pictformat_t = ct.c_uint
 
-    class render_directformat_t(ct.Structure) :
-        _fields_ = \
-            [
-                ("red_shift", ct.c_short),
-                ("red_mask", ct.c_short),
-                ("green_shift", ct.c_short),
-                ("green_mask", ct.c_short),
-                ("blue_shift", ct.c_short),
-                ("blue_mask", ct.c_short),
-                ("alpha_shift", ct.c_short),
-                ("alpha_mask", ct.c_short),
-            ]
-    #end render_directformat_t
+    class render_directformat_t(ct.Structure):
+        _fields_ = [
+            ("red_shift", ct.c_short),
+            ("red_mask", ct.c_short),
+            ("green_shift", ct.c_short),
+            ("green_mask", ct.c_short),
+            ("blue_shift", ct.c_short),
+            ("blue_mask", ct.c_short),
+            ("alpha_shift", ct.c_short),
+            ("alpha_mask", ct.c_short),
+        ]
+
+    # end render_directformat_t
 
     # values for render_pictforminfo_t.type
     RENDER_PICT_TYPE_INDEXED = 0
     RENDER_PICT_TYPE_DIRECT = 1
 
-    class render_pictforminfo_t(ct.Structure) :
+    class render_pictforminfo_t(ct.Structure):
         pass
-    render_pictforminfo_t._fields_ = \
-        [
-            ("id", render_pictformat_t),
-            ("type", ct.c_ubyte),
-            ("depth", ct.c_ubyte),
-            ("pad0", ct.c_ubyte * 2),
-            ("direct", render_directformat_t),
-            ("colormap", colormap_t),
-        ]
-    #end render_pictforminfo_t
+
+    render_pictforminfo_t._fields_ = [
+        ("id", render_pictformat_t),
+        ("type", ct.c_ubyte),
+        ("depth", ct.c_ubyte),
+        ("pad0", ct.c_ubyte * 2),
+        ("direct", render_directformat_t),
+        ("colormap", colormap_t),
+    ]
+    # end render_pictforminfo_t
     render_pictforminfo_ptr_t = ct.POINTER(render_pictforminfo_t)
 
-#end XCB
 
-class HAS :
-    "functionality queries. These are implemented by checking for the presence" \
-    " of particular library functions."
-    ISCLOSE = hasattr(math, "isclose") # introduced in Python 3.5
+# end XCB
+
+
+class HAS:
+    "functionality queries. These are implemented by checking for the presence of particular library functions."
+
+    ISCLOSE = hasattr(math, "isclose")  # introduced in Python 3.5
     # rest filled in below
-#end HAS
-for \
-    symname, funcname \
-in \
-    (
-        ("FT_FONT", "ft_font_face_create_for_ft_face"),
-        ("FC_FONT", "ft_font_face_create_for_pattern"),
-        ("IMAGE_SURFACE", "image_surface_create"),
-        # TODO: MIME_SURFACE, OBSERVER_SURFACE?
-        ("PDF_SURFACE", "pdf_surface_create"),
-        ("PNG_FUNCTIONS", "surface_write_to_png"),
-        ("PS_SURFACE", "ps_surface_create"),
-        ("RECORDING_SURFACE", "recording_surface_create"),
-        ("SCRIPT_SURFACE", "script_create"),
-        ("SVG_SURFACE", "svg_surface_create"),
-        ("USER_FONT", "user_font_face_create"),
-        ("XCB_SURFACE", "xcb_surface_create"),
-        ("XCB_SHM_FUNCTIONS", "xcb_device_debug_cap_xshm_version"),
-    ) \
-:
-    setattr \
-      (
-        HAS,
-        symname,
-        hasattr(cairo, "cairo_" + funcname)
-      )
-#end for
+
+
+# end HAS
+for symname, funcname in (
+    ("FT_FONT", "ft_font_face_create_for_ft_face"),
+    ("FC_FONT", "ft_font_face_create_for_pattern"),
+    ("IMAGE_SURFACE", "image_surface_create"),
+    # TODO: MIME_SURFACE, OBSERVER_SURFACE?
+    ("PDF_SURFACE", "pdf_surface_create"),
+    ("PNG_FUNCTIONS", "surface_write_to_png"),
+    ("PS_SURFACE", "ps_surface_create"),
+    ("RECORDING_SURFACE", "recording_surface_create"),
+    ("SCRIPT_SURFACE", "script_create"),
+    ("SVG_SURFACE", "svg_surface_create"),
+    ("USER_FONT", "user_font_face_create"),
+    ("XCB_SURFACE", "xcb_surface_create"),
+    ("XCB_SHM_FUNCTIONS", "xcb_device_debug_cap_xshm_version"),
+):
+    setattr(HAS, symname, hasattr(cairo, "cairo_" + funcname))
+# end for
 del symname, funcname
 
-if HAS.ISCLOSE :
+if HAS.ISCLOSE:
     # copy same defaults as math.isclose
     default_rel_tol = 1.0e-9
     default_abs_tol = 0
-#end if
+# end if
 
-def def_struct_class(name, ctname, extra = None) :
+
+def def_struct_class(name, ctname, extra=None):
     # defines a class with attributes that are a straightforward mapping
     # of a ctypes struct. Optionally includes extra members from extra
     # if specified.
 
     ctstruct = getattr(CAIRO, ctname)
 
-    class result_class :
+    class result_class:
+        __slots__ = tuple(field[0] for field in ctstruct._fields_)  # to forestall typos
 
-        __slots__ = tuple(field[0] for field in ctstruct._fields_) # to forestall typos
-
-        def to_cairo(self) :
+        def to_cairo(self):
             "returns a Cairo representation of the structure."
             result = ctstruct()
-            for name, cttype in ctstruct._fields_ :
+            for name, cttype in ctstruct._fields_:
                 setattr(result, name, getattr(self, name))
-            #end for
-            return \
-                result
-        #end to_cairo
+            # end for
+            return result
+
+        # end to_cairo
 
         @classmethod
-        def from_cairo(celf, r) :
+        def from_cairo(celf, r):
             "decodes the Cairo representation of the structure."
             result = celf()
-            for name, cttype in ctstruct._fields_ :
+            for name, cttype in ctstruct._fields_:
                 setattr(result, name, getattr(r, name))
-            #end for
-            return \
-                result
-        #end from_cairo
+            # end for
+            return result
 
-        def __getitem__(self, i) :
+        # end from_cairo
+
+        def __getitem__(self, i):
             "allows the object to be coerced to a tuple."
-            return \
-                getattr(self, ctstruct._fields_[i][0])
-        #end __getitem__
+            return getattr(self, ctstruct._fields_[i][0])
 
-        def __repr__(self) :
-            return \
-                (
-                    "%s(%s)"
-                %
-                    (
-                        name,
-                        ", ".join
-                          (
-                            "%s = %s" % (field[0], getattr(self, field[0]))
-                            for field in ctstruct._fields_
-                          ),
-                    )
-                )
-        #end __repr__
+        # end __getitem__
 
-    #end result_class
-
-#begin def_struct_class
-    result_class.__name__ = name
-    result_class.__doc__ = \
-        (
-            "representation of a Cairo %s structure. Fields are %s."
-            "\nCreate by decoding the Cairo form with the from_cairo method;"
-            " convert an instance to Cairo form with the to_cairo method."
-        %
-            (
-                ctname,
-                ", ".join(f[0] for f in ctstruct._fields_),
+        def __repr__(self):
+            return "{}({})".format(
+                name,
+                ", ".join(
+                    f"{field[0]} = {getattr(self, field[0])}"
+                    for field in ctstruct._fields_
+                ),
             )
-        )
-    if extra != None :
-        for attr in dir(extra) :
-            if not attr.startswith("__") :
-                setattr(result_class, attr, getattr(extra, attr))
-            #end if
-        #end for
-    #end if
-    return \
-        result_class
-#end def_struct_class
 
-#+
+        # end __repr__
+
+    # end result_class
+
+    # begin def_struct_class
+    result_class.__name__ = name
+    result_class.__doc__ = (
+        "representation of a Cairo %s structure. Fields are %s."
+        "\nCreate by decoding the Cairo form with the from_cairo method;"
+        " convert an instance to Cairo form with the to_cairo method."
+        % (
+            ctname,
+            ", ".join(f[0] for f in ctstruct._fields_),
+        )
+    )
+    if extra is not None:
+        for attr in dir(extra):
+            if not attr.startswith("__"):
+                setattr(result_class, attr, getattr(extra, attr))
+            # end if
+        # end for
+    # end if
+    return result_class
+
+
+# end def_struct_class
+
+# +
 # Routine arg/result types
-#-
+# -
 
 cairo.cairo_version_string.restype = ct.c_char_p
 cairo.cairo_status_to_string.restype = ct.c_char_p
@@ -730,24 +732,66 @@ cairo.cairo_copy_path.argtypes = (ct.c_void_p,)
 cairo.cairo_copy_path.restype = ct.c_void_p
 cairo.cairo_copy_path_flat.argtypes = (ct.c_void_p,)
 cairo.cairo_copy_path_flat.restype = ct.c_void_p
-cairo.cairo_append_path.argtypes = (ct.c_void_p, ct.c_void_p) # not used
+cairo.cairo_append_path.argtypes = (ct.c_void_p, ct.c_void_p)  # not used
 cairo.cairo_has_current_point.argtypes = (ct.c_void_p,)
 cairo.cairo_get_current_point.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p)
 cairo.cairo_new_path.argtypes = (ct.c_void_p,)
 cairo.cairo_new_sub_path.argtypes = (ct.c_void_p,)
 cairo.cairo_close_path.argtypes = (ct.c_void_p,)
-cairo.cairo_arc.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
-cairo.cairo_arc_negative.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
-cairo.cairo_curve_to.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
+cairo.cairo_arc.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
+cairo.cairo_arc_negative.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
+cairo.cairo_curve_to.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_line_to.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
 cairo.cairo_move_to.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
-cairo.cairo_rectangle.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
+cairo.cairo_rectangle.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_glyph_path.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_int)
 cairo.cairo_text_path.argtypes = (ct.c_void_p, ct.c_char_p)
-cairo.cairo_rel_curve_to.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
+cairo.cairo_rel_curve_to.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_rel_line_to.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
 cairo.cairo_rel_move_to.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
-cairo.cairo_path_extents.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_path_extents.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 
 cairo.cairo_translate.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
 cairo.cairo_scale.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
@@ -763,10 +807,26 @@ cairo.cairo_device_to_user_distance.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_v
 
 cairo.cairo_get_source.argtypes = (ct.c_void_p,)
 cairo.cairo_get_source.restype = ct.c_void_p
-cairo.cairo_set_source_rgb.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double) # not used
-cairo.cairo_set_source_rgba.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
+cairo.cairo_set_source_rgb.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)  # not used
+cairo.cairo_set_source_rgba.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_set_source.argtypes = (ct.c_void_p, ct.c_void_p)
-cairo.cairo_set_source_surface.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_double, ct.c_double)
+cairo.cairo_set_source_surface.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_get_antialias.argtypes = (ct.c_void_p,)
 cairo.cairo_set_dash.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_int, ct.c_double)
 cairo.cairo_get_dash_count.argtypes = (ct.c_void_p,)
@@ -790,7 +850,13 @@ cairo.cairo_get_tolerance.restype = ct.c_double
 cairo.cairo_set_tolerance.argtypes = (ct.c_void_p, ct.c_double)
 cairo.cairo_clip.argtypes = (ct.c_void_p,)
 cairo.cairo_clip_preserve.argtypes = (ct.c_void_p,)
-cairo.cairo_clip_extents.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_clip_extents.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_in_clip.restype = ct.c_bool
 cairo.cairo_in_clip.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
 cairo.cairo_copy_clip_rectangle_list.restype = CAIRO.rectangle_list_ptr_t
@@ -799,7 +865,13 @@ cairo.cairo_rectangle_list_destroy.argtypes = (CAIRO.rectangle_list_ptr_t,)
 cairo.cairo_reset_clip.argtypes = (ct.c_void_p,)
 cairo.cairo_fill.argtypes = (ct.c_void_p,)
 cairo.cairo_fill_preserve.argtypes = (ct.c_void_p,)
-cairo.cairo_fill_extents.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_fill_extents.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_in_fill.restype = ct.c_bool
 cairo.cairo_in_fill.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
 cairo.cairo_mask.argtypes = (ct.c_void_p, ct.c_void_p)
@@ -808,7 +880,13 @@ cairo.cairo_paint.argtypes = (ct.c_void_p,)
 cairo.cairo_paint_with_alpha.argtypes = (ct.c_void_p, ct.c_double)
 cairo.cairo_stroke.argtypes = (ct.c_void_p,)
 cairo.cairo_stroke_preserve.argtypes = (ct.c_void_p,)
-cairo.cairo_stroke_extents.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_stroke_extents.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_in_stroke.restype = ct.c_bool
 cairo.cairo_in_stroke.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
 cairo.cairo_copy_page.argtypes = (ct.c_void_p,)
@@ -843,7 +921,10 @@ cairo.cairo_user_font_face_get_init_func.argtypes = (ct.c_void_p,)
 cairo.cairo_user_font_face_set_render_glyph_func.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_user_font_face_get_render_glyph_func.restype = ct.c_void_p
 cairo.cairo_user_font_face_get_render_glyph_func.argtypes = (ct.c_void_p,)
-cairo.cairo_user_font_face_set_unicode_to_glyph_func.argtypes = (ct.c_void_p, ct.c_void_p)
+cairo.cairo_user_font_face_set_unicode_to_glyph_func.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_user_font_face_get_unicode_to_glyph_func.restype = ct.c_void_p
 cairo.cairo_user_font_face_get_unicode_to_glyph_func.argtypes = (ct.c_void_p,)
 cairo.cairo_user_font_face_set_text_to_glyphs_func.argtypes = (ct.c_void_p, ct.c_void_p)
@@ -852,7 +933,16 @@ cairo.cairo_user_font_face_get_text_to_glyphs_func.argtypes = (ct.c_void_p,)
 
 cairo.cairo_show_text.argtypes = (ct.c_void_p, ct.c_char_p)
 cairo.cairo_show_glyphs.argtypes = (ct.c_void_p, ct.c_void_p)
-cairo.cairo_show_text_glyphs.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_int, ct.c_void_p, ct.c_int, ct.c_void_p, ct.c_int, ct.c_uint)
+cairo.cairo_show_text_glyphs.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_uint,
+)
 cairo.cairo_font_extents.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_text_extents.argtypes = (ct.c_void_p, ct.c_char_p, ct.c_void_p)
 cairo.cairo_glyph_extents.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_int, ct.c_void_p)
@@ -866,11 +956,27 @@ cairo.cairo_device_get_reference_count.argtypes = (ct.c_void_p,)
 cairo.cairo_surface_status.argtypes = (ct.c_void_p,)
 cairo.cairo_surface_get_type.argtypes = (ct.c_void_p,)
 cairo.cairo_surface_create_similar.restype = ct.c_void_p
-cairo.cairo_surface_create_similar.argtypes = (ct.c_void_p, ct.c_int, ct.c_int, ct.c_int)
+cairo.cairo_surface_create_similar.argtypes = (
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_int,
+    ct.c_int,
+)
 cairo.cairo_surface_create_similar_image.restype = ct.c_void_p
-cairo.cairo_surface_create_similar_image.argtypes = (ct.c_void_p, ct.c_int, ct.c_int, ct.c_int)
+cairo.cairo_surface_create_similar_image.argtypes = (
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_int,
+    ct.c_int,
+)
 cairo.cairo_surface_create_for_rectangle.restype = ct.c_void_p
-cairo.cairo_surface_create_for_rectangle.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
+cairo.cairo_surface_create_for_rectangle.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_surface_reference.restype = ct.c_void_p
 cairo.cairo_surface_reference.argtypes = (ct.c_void_p,)
 cairo.cairo_surface_destroy.argtypes = (ct.c_void_p,)
@@ -881,15 +987,33 @@ cairo.cairo_surface_get_font_options.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_surface_get_content.restype = ct.c_int
 cairo.cairo_surface_get_content.argtypes = (ct.c_void_p,)
 cairo.cairo_surface_mark_dirty.argtypes = (ct.c_void_p,)
-cairo.cairo_surface_mark_dirty_rectangle.argtypes = (ct.c_void_p, ct.c_int, ct.c_int, ct.c_int, ct.c_int)
+cairo.cairo_surface_mark_dirty_rectangle.argtypes = (
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_int,
+    ct.c_int,
+    ct.c_int,
+)
 cairo.cairo_surface_set_device_offset.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
 cairo.cairo_surface_get_device_offset.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p)
 cairo.cairo_surface_set_device_scale.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
 cairo.cairo_surface_get_device_scale.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p)
-cairo.cairo_surface_set_fallback_resolution.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
-cairo.cairo_surface_get_fallback_resolution.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_surface_set_fallback_resolution.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+)
+cairo.cairo_surface_get_fallback_resolution.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_surface_write_to_png.argtypes = (ct.c_void_p, ct.c_char_p)
-cairo.cairo_surface_write_to_png_stream.argtypes = (ct.c_void_p, CAIRO.write_func_t, ct.c_void_p)
+cairo.cairo_surface_write_to_png_stream.argtypes = (
+    ct.c_void_p,
+    CAIRO.write_func_t,
+    ct.c_void_p,
+)
 cairo.cairo_surface_copy_page.argtypes = (ct.c_void_p,)
 cairo.cairo_surface_show_page.argtypes = (ct.c_void_p,)
 cairo.cairo_surface_has_show_text_glyphs.restype = ct.c_bool
@@ -902,9 +1026,18 @@ cairo.cairo_image_surface_create.restype = ct.c_void_p
 cairo.cairo_image_surface_create.argtypes = (ct.c_int, ct.c_int, ct.c_int)
 cairo.cairo_image_surface_create_from_png.restype = ct.c_void_p
 cairo.cairo_image_surface_create_from_png_stream.restype = ct.c_void_p
-cairo.cairo_image_surface_create_from_png_stream.argtypes = (CAIRO.read_func_t, ct.c_void_p)
+cairo.cairo_image_surface_create_from_png_stream.argtypes = (
+    CAIRO.read_func_t,
+    ct.c_void_p,
+)
 cairo.cairo_image_surface_create_for_data.restype = ct.c_void_p
-cairo.cairo_image_surface_create_for_data.argtypes = (ct.c_void_p, ct.c_int, ct.c_int, ct.c_int, ct.c_int)
+cairo.cairo_image_surface_create_for_data.argtypes = (
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_int,
+    ct.c_int,
+    ct.c_int,
+)
 cairo.cairo_image_surface_get_data.restype = ct.c_void_p
 cairo.cairo_image_surface_get_data.argtypes = (ct.c_void_p,)
 cairo.cairo_image_surface_get_format.argtypes = (ct.c_void_p,)
@@ -915,7 +1048,12 @@ cairo.cairo_image_surface_get_stride.argtypes = (ct.c_void_p,)
 cairo.cairo_pdf_surface_create.restype = ct.c_void_p
 cairo.cairo_pdf_surface_create.argtypes = (ct.c_char_p, ct.c_double, ct.c_double)
 cairo.cairo_pdf_surface_create_for_stream.restype = ct.c_void_p
-cairo.cairo_pdf_surface_create_for_stream.argtypes = (CAIRO.write_func_t, ct.c_void_p, ct.c_double, ct.c_double)
+cairo.cairo_pdf_surface_create_for_stream.argtypes = (
+    CAIRO.write_func_t,
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_pdf_surface_restrict_to_version.argtypes = (ct.c_void_p, ct.c_int)
 cairo.cairo_pdf_get_versions.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_pdf_version_to_string.restype = ct.c_char_p
@@ -924,7 +1062,12 @@ cairo.cairo_pdf_surface_set_size.argtypes = (ct.c_void_p, ct.c_double, ct.c_doub
 cairo.cairo_ps_surface_create.restype = ct.c_void_p
 cairo.cairo_ps_surface_create.argtypes = (ct.c_char_p, ct.c_double, ct.c_double)
 cairo.cairo_ps_surface_create_for_stream.restype = ct.c_void_p
-cairo.cairo_ps_surface_create_for_stream.argtypes = (CAIRO.write_func_t, ct.c_void_p, ct.c_double, ct.c_double)
+cairo.cairo_ps_surface_create_for_stream.argtypes = (
+    CAIRO.write_func_t,
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_ps_surface_restrict_to_level.argtypes = (ct.c_void_p, ct.c_int)
 cairo.cairo_ps_get_levels.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_ps_level_to_string.restype = ct.c_char_p
@@ -939,14 +1082,25 @@ cairo.cairo_ps_surface_dsc_comment.argtypes = (ct.c_void_p, ct.c_char_p)
 cairo.cairo_svg_surface_create.restype = ct.c_void_p
 cairo.cairo_svg_surface_create.argtypes = (ct.c_char_p, ct.c_double, ct.c_double)
 cairo.cairo_svg_surface_create_for_stream.restype = ct.c_void_p
-cairo.cairo_svg_surface_create_for_stream.argtypes = (CAIRO.write_func_t, ct.c_void_p, ct.c_double, ct.c_double)
+cairo.cairo_svg_surface_create_for_stream.argtypes = (
+    CAIRO.write_func_t,
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_svg_surface_restrict_to_version.argtypes = (ct.c_void_p, ct.c_int)
 cairo.cairo_svg_get_versions.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_svg_version_to_string.restype = ct.c_char_p
 cairo.cairo_svg_version_to_string.argtypes = (ct.c_int,)
 cairo.cairo_recording_surface_create.restype = ct.c_void_p
 cairo.cairo_recording_surface_create.argtypes = (ct.c_int, ct.c_void_p)
-cairo.cairo_recording_surface_ink_extents.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_recording_surface_ink_extents.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_recording_surface_get_extents.restype = ct.c_bool
 cairo.cairo_recording_surface_get_extents.argtypes = (ct.c_void_p, ct.c_void_p)
 
@@ -962,7 +1116,12 @@ cairo.cairo_script_get_mode.restype = ct.c_int
 cairo.cairo_script_get_mode.argtypes = (ct.c_void_p,)
 cairo.cairo_script_set_mode.argtypes = (ct.c_void_p, ct.c_int)
 cairo.cairo_script_surface_create.restype = ct.c_void_p
-cairo.cairo_script_surface_create.argtypes = (ct.c_void_p, ct.c_int, ct.c_double, ct.c_double)
+cairo.cairo_script_surface_create.argtypes = (
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_script_surface_create_for_target.restype = ct.c_int
 cairo.cairo_script_surface_create_for_target.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_script_write_comment.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_int)
@@ -971,23 +1130,85 @@ cairo.cairo_pattern_status.argtypes = (ct.c_void_p,)
 cairo.cairo_pattern_destroy.argtypes = (ct.c_void_p,)
 cairo.cairo_pattern_reference.argtypes = (ct.c_void_p,)
 cairo.cairo_pattern_reference.restype = ct.c_void_p
-cairo.cairo_pattern_add_color_stop_rgb.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double, ct.c_double) # not used
-cairo.cairo_pattern_add_color_stop_rgba.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
+cairo.cairo_pattern_add_color_stop_rgb.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)  # not used
+cairo.cairo_pattern_add_color_stop_rgba.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_pattern_get_color_stop_count.argtypes = (ct.c_void_p, ct.c_void_p)
-cairo.cairo_pattern_get_color_stop_rgba.argtypes = (ct.c_void_p, ct.c_int, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
-cairo.cairo_pattern_create_rgb.argtypes = (ct.c_double, ct.c_double, ct.c_double) # not used
-cairo.cairo_pattern_create_rgb.restype = ct.c_void_p # not used
-cairo.cairo_pattern_create_rgba.argtypes = (ct.c_double, ct.c_double, ct.c_double, ct.c_double)
+cairo.cairo_pattern_get_color_stop_rgba.argtypes = (
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
+cairo.cairo_pattern_create_rgb.argtypes = (
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)  # not used
+cairo.cairo_pattern_create_rgb.restype = ct.c_void_p  # not used
+cairo.cairo_pattern_create_rgba.argtypes = (
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_pattern_create_rgba.restype = ct.c_void_p
-cairo.cairo_pattern_get_rgba.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_pattern_get_rgba.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_pattern_create_for_surface.restype = ct.c_void_p
 cairo.cairo_pattern_create_for_surface.argtypes = (ct.c_void_p,)
-cairo.cairo_pattern_create_linear.argtypes = (ct.c_double, ct.c_double, ct.c_double, ct.c_double)
+cairo.cairo_pattern_create_linear.argtypes = (
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_pattern_create_linear.restype = ct.c_void_p
-cairo.cairo_pattern_get_linear_points.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
-cairo.cairo_pattern_create_radial.argtypes = (ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
+cairo.cairo_pattern_get_linear_points.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
+cairo.cairo_pattern_create_radial.argtypes = (
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_pattern_create_radial.restype = ct.c_void_p
-cairo.cairo_pattern_get_radial_circles.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_pattern_get_radial_circles.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_pattern_get_extend.argtypes = (ct.c_void_p,)
 cairo.cairo_pattern_set_extend.argtypes = (ct.c_void_p, ct.c_int)
 cairo.cairo_pattern_get_filter.argtypes = (ct.c_void_p,)
@@ -1003,15 +1224,55 @@ cairo.cairo_mesh_pattern_begin_patch.argtypes = (ct.c_void_p,)
 cairo.cairo_mesh_pattern_end_patch.argtypes = (ct.c_void_p,)
 cairo.cairo_mesh_pattern_move_to.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
 cairo.cairo_mesh_pattern_line_to.argtypes = (ct.c_void_p, ct.c_double, ct.c_double)
-cairo.cairo_mesh_pattern_curve_to.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
-cairo.cairo_mesh_pattern_set_control_point.argtypes = (ct.c_void_p, ct.c_uint, ct.c_double, ct.c_double)
-cairo.cairo_mesh_pattern_set_corner_color_rgb.argtypes = (ct.c_void_p, ct.c_uint, ct.c_double, ct.c_double, ct.c_double) # not used
-cairo.cairo_mesh_pattern_set_corner_color_rgba.argtypes = (ct.c_void_p, ct.c_uint, ct.c_double, ct.c_double, ct.c_double, ct.c_double)
+cairo.cairo_mesh_pattern_curve_to.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
+cairo.cairo_mesh_pattern_set_control_point.argtypes = (
+    ct.c_void_p,
+    ct.c_uint,
+    ct.c_double,
+    ct.c_double,
+)
+cairo.cairo_mesh_pattern_set_corner_color_rgb.argtypes = (
+    ct.c_void_p,
+    ct.c_uint,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)  # not used
+cairo.cairo_mesh_pattern_set_corner_color_rgba.argtypes = (
+    ct.c_void_p,
+    ct.c_uint,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+    ct.c_double,
+)
 cairo.cairo_mesh_pattern_get_patch_count.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_mesh_pattern_get_path.restype = ct.c_void_p
 cairo.cairo_mesh_pattern_get_path.argtypes = (ct.c_void_p, ct.c_uint)
-cairo.cairo_mesh_pattern_get_control_point.argtypes = (ct.c_void_p, ct.c_uint, ct.c_uint, ct.c_void_p, ct.c_void_p)
-cairo.cairo_mesh_pattern_get_corner_color_rgba.argtypes = (ct.c_void_p, ct.c_uint, ct.c_uint, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_mesh_pattern_get_control_point.argtypes = (
+    ct.c_void_p,
+    ct.c_uint,
+    ct.c_uint,
+    ct.c_void_p,
+    ct.c_void_p,
+)
+cairo.cairo_mesh_pattern_get_corner_color_rgba.argtypes = (
+    ct.c_void_p,
+    ct.c_uint,
+    ct.c_uint,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 
 cairo.cairo_region_status.argtypes = (ct.c_void_p,)
 cairo.cairo_region_destroy.argtypes = (ct.c_void_p,)
@@ -1066,7 +1327,12 @@ cairo.cairo_font_face_reference.argtypes = (ct.c_void_p,)
 cairo.cairo_font_face_destroy.argtypes = (ct.c_void_p,)
 cairo.cairo_font_face_status.argtypes = (ct.c_void_p,)
 cairo.cairo_font_face_get_type.argtypes = (ct.c_void_p,)
-cairo.cairo_font_face_set_user_data.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_font_face_set_user_data.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_font_face_get_user_data.restype = ct.c_void_p
 cairo.cairo_font_face_get_user_data.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_toy_font_face_create.argtypes = (ct.c_char_p, ct.c_int, ct.c_int)
@@ -1098,12 +1364,33 @@ cairo.cairo_scaled_font_reference.restype = ct.c_void_p
 cairo.cairo_scaled_font_reference.argtypes = (ct.c_void_p,)
 cairo.cairo_scaled_font_destroy.argtypes = (ct.c_void_p,)
 cairo.cairo_scaled_font_status.argtypes = (ct.c_void_p,)
-cairo.cairo_scaled_font_create.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_scaled_font_create.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_scaled_font_create.restype = ct.c_void_p
 cairo.cairo_scaled_font_extents.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_scaled_font_text_extents.argtypes = (ct.c_void_p, ct.c_char_p, ct.c_void_p)
-cairo.cairo_scaled_font_glyph_extents.argtypes = (ct.c_void_p, ct.c_void_p, ct.c_int, ct.c_void_p)
-cairo.cairo_scaled_font_text_to_glyphs.argtypes = (ct.c_void_p, ct.c_double, ct.c_double, ct.c_void_p, ct.c_int, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.c_void_p)
+cairo.cairo_scaled_font_glyph_extents.argtypes = (
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_void_p,
+)
+cairo.cairo_scaled_font_text_to_glyphs.argtypes = (
+    ct.c_void_p,
+    ct.c_double,
+    ct.c_double,
+    ct.c_void_p,
+    ct.c_int,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+    ct.c_void_p,
+)
 cairo.cairo_scaled_font_get_font_face.restype = ct.c_void_p
 cairo.cairo_scaled_font_get_font_face.argtypes = (ct.c_void_p,)
 cairo.cairo_scaled_font_get_font_options.argtypes = (ct.c_void_p, ct.c_void_p)
@@ -1112,78 +1399,111 @@ cairo.cairo_scaled_font_get_ctm.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_scaled_font_get_scale_matrix.argtypes = (ct.c_void_p, ct.c_void_p)
 cairo.cairo_scaled_font_get_type.argtypes = (ct.c_void_p,)
 
-if HAS.XCB_SURFACE :
-
+if HAS.XCB_SURFACE:
     cairo.cairo_xcb_surface_create.restype = ct.c_void_p
-    cairo.cairo_xcb_surface_create.argtypes = (ct.c_void_p, XCB.drawable_t, XCB.visualtype_ptr_t, ct.c_int, ct.c_int)
+    cairo.cairo_xcb_surface_create.argtypes = (
+        ct.c_void_p,
+        XCB.drawable_t,
+        XCB.visualtype_ptr_t,
+        ct.c_int,
+        ct.c_int,
+    )
     cairo.cairo_xcb_surface_create_for_bitmap.restype = ct.c_void_p
-    cairo.cairo_xcb_surface_create_for_bitmap.argtypes = (ct.c_void_p, XCB.screen_ptr_t, XCB.pixmap_t, ct.c_int, ct.c_int)
+    cairo.cairo_xcb_surface_create_for_bitmap.argtypes = (
+        ct.c_void_p,
+        XCB.screen_ptr_t,
+        XCB.pixmap_t,
+        ct.c_int,
+        ct.c_int,
+    )
     cairo.cairo_xcb_surface_create_with_xrender_format.restype = ct.c_void_p
-    cairo.cairo_xcb_surface_create_with_xrender_format.argtypes = (ct.c_void_p, XCB.screen_ptr_t, ct.c_uint, XCB.render_pictforminfo_ptr_t, ct.c_int, ct.c_int)
+    cairo.cairo_xcb_surface_create_with_xrender_format.argtypes = (
+        ct.c_void_p,
+        XCB.screen_ptr_t,
+        ct.c_uint,
+        XCB.render_pictforminfo_ptr_t,
+        ct.c_int,
+        ct.c_int,
+    )
     cairo.cairo_xcb_surface_set_size.restype = None
     cairo.cairo_xcb_surface_set_size.argtypes = (ct.c_void_p, ct.c_int, ct.c_int)
     cairo.cairo_xcb_surface_set_drawable.restype = None
-    cairo.cairo_xcb_surface_set_drawable.argtypes = (ct.c_void_p, ct.c_uint, ct.c_int, ct.c_int)
+    cairo.cairo_xcb_surface_set_drawable.argtypes = (
+        ct.c_void_p,
+        ct.c_uint,
+        ct.c_int,
+        ct.c_int,
+    )
     cairo.cairo_xcb_device_get_connection.restype = ct.c_void_p
     cairo.cairo_xcb_device_get_connection.argtypes = (ct.c_void_p,)
 
-    if HAS.XCB_SHM_FUNCTIONS :
+    if HAS.XCB_SHM_FUNCTIONS:
         cairo.cairo_xcb_device_debug_cap_xshm_version.restype = None
-        cairo.cairo_xcb_device_debug_cap_xshm_version.argtypes = (ct.c_void_p, ct.c_int, ct.c_int)
-    #end if
+        cairo.cairo_xcb_device_debug_cap_xshm_version.argtypes = (
+            ct.c_void_p,
+            ct.c_int,
+            ct.c_int,
+        )
+    # end if
 
     cairo.cairo_xcb_device_debug_cap_xrender_version.restype = None
-    cairo.cairo_xcb_device_debug_cap_xrender_version.argtypes = (ct.c_void_p, ct.c_int, ct.c_int)
+    cairo.cairo_xcb_device_debug_cap_xrender_version.argtypes = (
+        ct.c_void_p,
+        ct.c_int,
+        ct.c_int,
+    )
 
     cairo.cairo_xcb_device_debug_set_precision.restype = None
     cairo.cairo_xcb_device_debug_set_precision.argtypes = (ct.c_void_p, ct.c_int)
     cairo.cairo_xcb_device_debug_get_precision.restype = ct.c_int
     cairo.cairo_xcb_device_debug_get_precision.argtypes = (ct.c_void_p,)
 
-#end if
+# end if
 
-_ft_destroy_key = ct.c_int() # dummy address
+_ft_destroy_key = ct.c_int()  # dummy address
 
-if freetype2 != None :
+if freetype2 is not None:
 
-    def _ensure_ft() :
+    def _ensure_ft():
         pass
-    #end _ensure_ft
 
-    def get_ft_lib() :
+    # end _ensure_ft
+
+    def get_ft_lib():
         "returns the freetype2.Library object that I use."
-        return \
-            freetype2.get_default_lib()
-    #end get_ft_lib
+        return freetype2.get_default_lib()
 
-else :
+    # end get_ft_lib
+
+else:
     # fallback to my own minimal wrapper for FreeType
 
     _ft_lib = None
 
-    def _ensure_ft() :
+    def _ensure_ft():
         # ensures FreeType is usable, raising suitable exceptions if not.
         global _ft_lib
-        if _ft_lib == None :
+        if _ft_lib is None:
             lib = ct.c_void_p()
             status = _ft.FT_Init_FreeType(ct.byref(lib))
-            if status != 0 :
+            if status != 0:
                 raise RuntimeError("Error %d initializing FreeType" % status)
-            #end if
+            # end if
             _ft_lib = lib.value
-        #end if
-    #end _ensure_ft
+        # end if
 
-    def get_ft_lib() :
+    # end _ensure_ft
+
+    def get_ft_lib():
         "not available without python_freetype."
         raise NotImplementedError("not available without freetype2.")
-    #end get_ft_lib
 
-#end if freetype2 != None
+    # end get_ft_lib
 
-if fontconfig == None :
+# end if freetype2 != None
 
-    if _fc != None :
+if fontconfig is None:
+    if _fc is not None:
         _fc.FcInit.restype = ct.c_bool
         _fc.FcNameParse.argtypes = (ct.c_char_p,)
         _fc.FcNameParse.restype = ct.c_void_p
@@ -1196,395 +1516,395 @@ if fontconfig == None :
         _fc.FcPatternDestroy.argtypes = (ct.c_void_p,)
         _fc.FcPatternDestroy.restype = None
 
-        class _FC :
+        class _FC:
             # minimal Fontconfig interface, just sufficient for my needs.
 
             FcMatchPattern = 0
             FcResultMatch = 0
 
-        #end _FC
+        # end _FC
 
-        class _FcPatternManager :
+        class _FcPatternManager:
             # context manager which collects a list of FcPattern objects requiring disposal.
 
-            def __init__(self) :
+            def __init__(self):
                 self.to_dispose = []
-            #end __init__
 
-            def __enter__(self) :
-                return \
-                    self
-            #end __enter__
+            # end __init__
 
-            def collect(self, pattern) :
+            def __enter__(self):
+                return self
+
+            # end __enter__
+
+            def collect(self, pattern):
                 "collects another FcPattern reference to be disposed."
                 # c_void_p function results are peculiar: they return integers
                 # for non-null values, but None for null.
-                if pattern != None :
+                if pattern is not None:
                     self.to_dispose.append(pattern)
-                #end if
-                return \
-                    pattern
-            #end collect
+                # end if
+                return pattern
 
-            def __exit__(self, exception_type, exception_value, traceback) :
-                for pattern in self.to_dispose :
+            # end collect
+
+            def __exit__(self, exception_type, exception_value, traceback):
+                for pattern in self.to_dispose:
                     _fc.FcPatternDestroy(pattern)
-                #end for
-            #end __exit__
+                # end for
 
-        #end _FcPatternManager
+            # end __exit__
 
-    #end if _fc != None
+        # end _FcPatternManager
+
+    # end if _fc != None
 
     _fc_inited = False
 
-    def _ensure_fc() :
+    def _ensure_fc():
         # ensures Fontconfig is usable, raising suitable exceptions if not.
         global _fc_inited
-        if not _fc_inited :
-            if _fc == None :
+        if not _fc_inited:
+            if _fc is None:
                 raise NotImplementedError("Fontconfig not available")
-            #end if
-            if not _fc.FcInit() :
+            # end if
+            if not _fc.FcInit():
                 raise RuntimeError("failed to initialize Fontconfig.")
-            #end if
+            # end if
             _fc_inited = True
-        #end if
-    #end _ensure_fc
+        # end if
 
-#end if fontconfig == None
+    # end _ensure_fc
 
-#+
+# end if fontconfig == None
+
+# +
 # Higher-level stuff begins here
-#-
+# -
 
-def version() :
+
+def version():
     "returns the Cairo version as a single integer."
-    return \
-        cairo.cairo_version()
-#end version
+    return cairo.cairo_version()
 
-def version_tuple() :
+
+# end version
+
+
+def version_tuple():
     "returns the Cairo version as a triple of integers."
     vers = cairo.cairo_version()
-    return \
-        (vers // 10000, vers // 100 % 100, vers % 100)
-#end version_tuple
+    return (vers // 10000, vers // 100 % 100, vers % 100)
 
-def version_string() :
+
+# end version_tuple
+
+
+def version_string():
     "returns the Cairo version string."
-    return \
-        cairo.cairo_version_string().decode("utf-8")
-#end version_string
+    return cairo.cairo_version_string().decode("utf-8")
 
-def status_to_string(status) :
+
+# end version_string
+
+
+def status_to_string(status):
     "returns the message for a given Cairo status code."
-    return \
-        cairo.cairo_status_to_string(status).decode("utf-8")
-#end status_to_string
+    return cairo.cairo_status_to_string(status).decode("utf-8")
 
-def debug_reset_static_data() :
+
+# end status_to_string
+
+
+def debug_reset_static_data():
     cairo.cairo_debug_reset_static_data()
-#end debug_reset_static_data
 
-def check(status) :
+
+# end debug_reset_static_data
+
+
+def check(status):
     "checks status for success, raising a CairoError if not."
-    if status != 0 :
+    if status != 0:
         raise CairoError(status)
-    #end if
-#end check
+    # end if
 
-class CairoError(Exception) :
+
+# end check
+
+
+class CairoError(Exception):
     "just to identify a Cairo-specific error exception."
 
-    def __init__(self, code) :
+    def __init__(self, code):
         self.args = ("Cairo error %d -- %s" % (code, status_to_string(code)),)
-    #end __init__
 
-#end CairoError
+    # end __init__
+
+
+# end CairoError
 
 deg = math.pi / 180
-  # All angles are in radians. You can use the standard Python functions math.degrees
-  # and math.radians to convert back and forth, or multiply and divide by this deg
-  # factor: multiply by deg to convert degrees to radians, and divide by deg to convert
-  # the other way, e.g.
-  #
-  #     math.sin(45 * deg)
-  #     math.atan(1) / deg
+# All angles are in radians. You can use the standard Python functions math.degrees
+# and math.radians to convert back and forth, or multiply and divide by this deg
+# factor: multiply by deg to convert degrees to radians, and divide by deg to convert
+# the other way, e.g.
+#
+#     math.sin(45 * deg)
+#     math.atan(1) / deg
 circle = 2 * math.pi
-  # Alternatively, you can work in units of full circles. E.g.
-  # 0.25 * circle is equivalent to 90°
+# Alternatively, you can work in units of full circles. E.g.
+# 0.25 * circle is equivalent to 90°
 
-base_dpi = 72 # for scaling things to different relative resolutions
+base_dpi = 72  # for scaling things to different relative resolutions
 
-def int_fits_bits(val, bits) :
+
+def int_fits_bits(val, bits):
     "is val a signed integer that fits within the specified number of bits."
     limit = (1 << bits - 1) - 1
-    return \
-        (
-            isinstance(val, int)
-        and
-            - limit <= val <= limit
-              # yes, I ignore the extra negative value in 2s-complement
-        )
-#end int_fits_bits
+    return (
+        isinstance(val, int) and -limit <= val <= limit
+        # yes, I ignore the extra negative value in 2s-complement
+    )
 
-class Vector :
+
+# end int_fits_bits
+
+
+class Vector:
     "something missing from Cairo itself, a representation of a 2D point."
 
-    __slots__ = ("x", "y") # to forestall typos
+    __slots__ = ("x", "y")  # to forestall typos
 
-    def __init__(self, x, y) :
+    def __init__(self, x, y):
         self.x = x
         self.y = y
-    #end __init__
+
+    # end __init__
 
     @classmethod
-    def from_tuple(celf, v) :
-        "converts a tuple of 2 numbers to a Vector. Can be used to ensure that" \
-        " v is a Vector."
-        if not isinstance(v, celf) :
+    def from_tuple(celf, v):
+        "converts a tuple of 2 numbers to a Vector. Can be used to ensure that v is a Vector."
+        if not isinstance(v, celf):
             v = celf(*v)
-        #end if
-        return \
-            v
-    #end from_tuple
+        # end if
+        return v
 
-    def isint(self) :
+    # end from_tuple
+
+    def isint(self):
         "are the components signed 32-bit integers."
-        return \
-            int_fits_bits(self.x, 32) and int_fits_bits(self.y, 32)
-    #end isint
+        return int_fits_bits(self.x, 32) and int_fits_bits(self.y, 32)
 
-    def assert_isint(self) :
+    # end isint
+
+    def assert_isint(self):
         "checks that the components are signed 32-bit integers."
-        if not self.isint() :
+        if not self.isint():
             raise ValueError("components must be signed 32-bit integers")
-        #end if
-        return \
-            self
-    #end assert_isint
+        # end if
+        return self
 
-    def __repr__(self) :
-        return \
-            (
-                "%%s(%%%(fmt)s, %%%(fmt)s)"
-            %
-                {"fmt" : ("g", "d")[self.isint()]}
-            %
-                (type(self).__name__, self.x, self.y)
-            )
-    #end __repr__
+    # end assert_isint
 
-    def __getitem__(self, i) :
+    def __repr__(self):
+        return (
+            "%%s(%%%(fmt)s, %%%(fmt)s)"
+            % {"fmt": ("g", "d")[self.isint()]}
+            % (type(self).__name__, self.x, self.y)
+        )
+
+    # end __repr__
+
+    def __getitem__(self, i):
         "being able to access elements by index allows a Vector to be cast to a tuple or list."
-        return \
-            (self.x, self.y)[i]
-    #end __getitem__
+        return (self.x, self.y)[i]
 
-    def __eq__(v1, v2) :
+    # end __getitem__
+
+    def __eq__(v1, v2):
         "equality of two Vectors."
-        return \
-            (
-                isinstance(v2, Vector)
-            and
-                v1.x == v2.x
-            and
-                v1.y == v2.y
-            )
-    #end __eq__
+        return isinstance(v2, Vector) and v1.x == v2.x and v1.y == v2.y
 
-    if HAS.ISCLOSE :
+    # end __eq__
 
-        def iscloseto(v1, v2, rel_tol = default_rel_tol, abs_tol = default_abs_tol) :
+    if HAS.ISCLOSE:
+
+        def iscloseto(v1, v2, rel_tol=default_rel_tol, abs_tol=default_abs_tol):
             "approximate equality of two Vectors to within the specified tolerances."
-            return \
-                (
-                    math.isclose(v1.x, v2.x, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(v1.y, v2.y, rel_tol = rel_tol, abs_tol = abs_tol)
-                )
-        #end iscloseto
+            return math.isclose(
+                v1.x, v2.x, rel_tol=rel_tol, abs_tol=abs_tol
+            ) and math.isclose(v1.y, v2.y, rel_tol=rel_tol, abs_tol=abs_tol)
 
-    #end if
+        # end iscloseto
 
-    def __add__(v1, v2) :
+    # end if
+
+    def __add__(v1, v2):
         "offset one Vector by another."
-        return \
-            (
-                lambda : NotImplemented,
-                lambda : type(v1)(v1.x + v2.x, v1.y + v2.y)
-            )[isinstance(v2, Vector)]()
-    #end __add__
+        return (lambda: NotImplemented, lambda: type(v1)(v1.x + v2.x, v1.y + v2.y))[
+            isinstance(v2, Vector)
+        ]()
 
-    def __neg__(self) :
+    # end __add__
+
+    def __neg__(self):
         "reflect across origin."
-        return type(self) \
-          (
-            x = - self.x,
-            y = - self.y
-          )
-    #end __neg__
+        return type(self)(x=-self.x, y=-self.y)
 
-    def __sub__(v1, v2) :
+    # end __neg__
+
+    def __sub__(v1, v2):
         "difference between two Vectors."
-        return \
-            (
-                lambda : NotImplemented,
-                lambda : type(v1)(v1.x - v2.x, v1.y - v2.y)
-            )[isinstance(v2, Vector)]()
-    #end __sub__
+        return (lambda: NotImplemented, lambda: type(v1)(v1.x - v2.x, v1.y - v2.y))[
+            isinstance(v2, Vector)
+        ]()
 
-    def __mul__(v, f) :
+    # end __sub__
+
+    def __mul__(v, f):
         "scale a Vector uniformly by a number or non-uniformly by another Vector."
-        if isinstance(f, Vector) :
+        if isinstance(f, Vector):
             result = type(v)(v.x * f.x, v.y * f.y)
-        elif isinstance(f, Real) :
+        elif isinstance(f, Real):
             result = type(v)(v.x * f, v.y * f)
-        else :
+        else:
             result = NotImplemented
-        #end if
-        return \
-            result
-    #end __mul__
+        # end if
+        return result
+
+    # end __mul__
     __rmul__ = __mul__
 
-    def __truediv__(v, f) :
+    def __truediv__(v, f):
         "inverse-scale a Vector uniformly by a number or non-uniformly by another Vector."
-        if isinstance(f, Vector) :
+        if isinstance(f, Vector):
             result = type(v)(v.x / f.x, v.y / f.y)
-        elif isinstance(f, Real) :
+        elif isinstance(f, Real):
             result = type(v)(v.x / f, v.y / f)
-        else :
+        else:
             result = NotImplemented
-        #end if
-        return \
-            result
-    #end __truediv__
+        # end if
+        return result
 
-    def __floordiv__(v, f) :
-        "inverse-scale an integer Vector uniformly by an integer or non-uniformly" \
-        " by another integer Vector."
+    # end __truediv__
+
+    def __floordiv__(v, f):
+        "inverse-scale an integer Vector uniformly by an integer or non-uniformly by another integer Vector."
         v.assert_isint()
-        if isinstance(f, Vector) :
+        if isinstance(f, Vector):
             f.assert_isint()
             result = type(v)(v.x // f.x, v.y // f.y)
-        elif isinstance(f, int) :
+        elif isinstance(f, int):
             result = type(v)(v.x // f, v.y // f)
-        else :
+        else:
             result = NotImplemented
-        #end if
-        return \
-            result
-    #end __floordiv__
+        # end if
+        return result
 
-    def __mod__(v, f) :
+    # end __floordiv__
+
+    def __mod__(v, f):
         "remainder on division of one Vector by another."
-        if isinstance(f, Vector) :
+        if isinstance(f, Vector):
             result = type(v)(v.x % f.x, v.y % f.y)
-        elif isinstance(f, Real) :
+        elif isinstance(f, Real):
             result = type(v)(v.x % f, v.y % f)
-        else :
+        else:
             result = NotImplemented
-        #end if
-        return \
-            result
-    #end __mod__
+        # end if
+        return result
 
-    def __round__(self) :
+    # end __mod__
+
+    def __round__(self):
         "returns the Vector with all coordinates rounded to integers."
-        return \
-            type(self)(round(self.x), round(self.y))
-    #end __round__
+        return type(self)(round(self.x), round(self.y))
 
-    def __floor__(self) :
+    # end __round__
+
+    def __floor__(self):
         "returns the Vector with all coordinates rounded down to integers."
-        return \
-            type(self)(math.floor(self.x), math.floor(self.y))
-    #end __floor__
+        return type(self)(math.floor(self.x), math.floor(self.y))
 
-    def __ceil__(self) :
+    # end __floor__
+
+    def __ceil__(self):
         "returns the Vector with all coordinates rounded up to integers."
-        return \
-            type(self)(math.ceil(self.x), math.ceil(self.y))
-    #end __ceil__
+        return type(self)(math.ceil(self.x), math.ceil(self.y))
+
+    # end __ceil__
 
     @classmethod
-    def unit(celf, angle) :
+    def unit(celf, angle):
         "returns the unit vector with the specified direction."
-        return \
-            celf(math.cos(angle), math.sin(angle))
-    #end unit
+        return celf(math.cos(angle), math.sin(angle))
 
-    def dot(v1, v2) :
+    # end unit
+
+    def dot(v1, v2):
         "returns the dot product of two Vectors."
-        return \
-            v1.x * v2.x + v1.y * v2.y
-    #end dot
-    __matmul__ = dot # allow v1 @ v2 for dot product (Python 3.5 and later)
+        return v1.x * v2.x + v1.y * v2.y
 
-    def cross(v1, v2) :
+    # end dot
+    __matmul__ = dot  # allow v1 @ v2 for dot product (Python 3.5 and later)
+
+    def cross(v1, v2):
         "returns the (scalar) cross product of two Vectors."
-        return \
-            v1.x * v2.y - v1.y * v2.x
-    #enc cross
+        return v1.x * v2.y - v1.y * v2.x
 
-    def rotate(self, angle) :
+    # enc cross
+
+    def rotate(self, angle):
         "returns the Vector rotated by the specified angle."
         cos = math.cos(angle)
         sin = math.sin(angle)
-        return \
-            type(self)(self.x * cos - self.y * sin, self.x * sin + self.y * cos)
-    #end rotate
+        return type(self)(self.x * cos - self.y * sin, self.x * sin + self.y * cos)
 
-    def __abs__(self) :
+    # end rotate
+
+    def __abs__(self):
         "use abs() to get the length of a Vector."
-        return \
-            math.hypot(self.x, self.y)
-    #end __abs__
+        return math.hypot(self.x, self.y)
 
-    def angle(self) :
+    # end __abs__
+
+    def angle(self):
         "returns the Vector’s rotation angle."
-        return \
-            math.atan2(self.y, self.x)
-    #end angle
+        return math.atan2(self.y, self.x)
 
-    def norm(self) :
+    # end angle
+
+    def norm(self):
         "returns the unit Vector in the same direction as this one."
-        return \
-            type(self).unit(self.angle())
-    #end norm
+        return type(self).unit(self.angle())
+
+    # end norm
 
     @classmethod
-    def from_polar(celf, length, angle) :
+    def from_polar(celf, length, angle):
         "constructs a Vector from a length and a direction."
-        return \
-            celf(length * math.cos(angle), length * math.sin(angle))
-    #end from_polar
+        return celf(length * math.cos(angle), length * math.sin(angle))
 
-    def axis_swap(self, swap = True) :
-        "returns the Vector with the x- and y-axis coordinates swapped" \
-        " or not, depending on swap."
-        return \
-            type(self)((self.x, self.y)[swap], (self.y, self.x)[swap])
-    #end axis_swap
+    # end from_polar
 
-#end Vector
+    def axis_swap(self, swap=True):
+        "returns the Vector with the x- and y-axis coordinates swapped or not, depending on swap."
+        return type(self)((self.x, self.y)[swap], (self.y, self.x)[swap])
+
+    # end axis_swap
+
+
+# end Vector
 Vector.zero = Vector(0, 0)
 
-class Matrix :
-    "representation of a 3-by-2 affine homogeneous matrix. This does not" \
-    " actually use any Cairo routines to implement its calculations; these" \
-    " are done entirely using Python numerics. The from_cairo and to_cairo" \
-    " methods provide conversion to/from cairo_matrix_t structs. Routines" \
-    " elsewhere expect this Matrix type where the underlying Cairo routine" \
-    " wants a cairo_matrix_t, and return this type where the Cairo routine" \
-    " returns a cairo_matrix_t."
 
-    __slots__ = ("xx", "yx", "xy", "yy", "x0", "y0") # to forestall typos
+class Matrix:
+    "representation of a 3-by-2 affine homogeneous matrix. This does not actually use any Cairo routines to implement its calculations; these are done entirely using Python numerics. The from_cairo and to_cairo methods provide conversion to/from cairo_matrix_t structs. Routines elsewhere expect this Matrix type where the underlying Cairo routine wants a cairo_matrix_t, and return this type where the Cairo routine returns a cairo_matrix_t."
 
-    def __init__(self, xx, yx, xy, yy, x0, y0) :
+    __slots__ = ("xx", "yx", "xy", "yy", "x0", "y0")  # to forestall typos
+
+    def __init__(self, xx, yx, xy, yy, x0, y0):
         self.xx = xx
         self.yx = yx
         self.xy = xy
@@ -1594,274 +1914,265 @@ class Matrix :
         # self.u = 0
         # self.v = 0
         # self.w = 1
-    #end __init__
 
-    def __getitem__(self, i) :
+    # end __init__
+
+    def __getitem__(self, i):
         "being able to access elements by index allows a Matrix to be cast to a tuple or list."
-        return \
-            getattr(self, ("xx", "yx", "xy", "yy", "x0", "y0")[i])
-    #end __getitem__
+        return getattr(self, ("xx", "yx", "xy", "yy", "x0", "y0")[i])
+
+    # end __getitem__
 
     @classmethod
-    def from_cairo(celf, m) :
-        return \
-            celf(m.xx, m.yx, m.xy, m.yy, m.x0, m.y0)
-    #end from_cairo
+    def from_cairo(celf, m):
+        return celf(m.xx, m.yx, m.xy, m.yy, m.x0, m.y0)
 
-    def to_cairo(m) :
-        return \
-            CAIRO.matrix_t(m.xx, m.yx, m.xy, m.yy, m.x0, m.y0)
-    #end to_cairo
+    # end from_cairo
 
-    if HAS.ISCLOSE :
+    def to_cairo(m):
+        return CAIRO.matrix_t(m.xx, m.yx, m.xy, m.yy, m.x0, m.y0)
 
-        def iscloseto(m1, m2, rel_tol = default_rel_tol, abs_tol = default_abs_tol) :
+    # end to_cairo
+
+    if HAS.ISCLOSE:
+
+        def iscloseto(m1, m2, rel_tol=default_rel_tol, abs_tol=default_abs_tol):
             "approximate equality of two Matrices to within the specified tolerances."
-            return \
-                (
-                    math.isclose(m1.xx, m2.xx, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(m1.yx, m2.yx, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(m1.xy, m2.xy, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(m1.yy, m2.yy, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(m1.x0, m2.x0, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(m1.y0, m2.y0, rel_tol = rel_tol, abs_tol = abs_tol)
-                )
-        #end iscloseto
+            return (
+                math.isclose(m1.xx, m2.xx, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(m1.yx, m2.yx, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(m1.xy, m2.xy, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(m1.yy, m2.yy, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(m1.x0, m2.x0, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(m1.y0, m2.y0, rel_tol=rel_tol, abs_tol=abs_tol)
+            )
 
-    #end if
+        # end iscloseto
 
-    def __mul__(m1, m2) :
+    # end if
+
+    def __mul__(m1, m2):
         "returns concatenation with another Matrix, or mapping of a Vector."
-        if isinstance(m2, Matrix) :
-            result = type(m1) \
-              (
-                xx = m1.xx * m2.xx + m1.xy * m2.yx,
-                yx = m1.yx * m2.xx + m1.yy * m2.yx,
-                xy = m1.xx * m2.xy + m1.xy * m2.yy,
-                yy = m1.yx * m2.xy + m1.yy * m2.yy,
-                x0 = m1.xx * m2.x0 + m1.xy * m2.y0 + m1.x0,
-                y0 = m1.yx * m2.x0 + m1.yy * m2.y0 + m1.y0,
-              )
-        elif isinstance(m2, Vector) :
-            result = type(m2) \
-              (
-                x = m2.x * m1.xx + m2.y * m1.xy + m1.x0,
-                y = m2.x * m1.yx + m2.y * m1.yy + m1.y0
-              )
-        else :
+        if isinstance(m2, Matrix):
+            result = type(m1)(
+                xx=m1.xx * m2.xx + m1.xy * m2.yx,
+                yx=m1.yx * m2.xx + m1.yy * m2.yx,
+                xy=m1.xx * m2.xy + m1.xy * m2.yy,
+                yy=m1.yx * m2.xy + m1.yy * m2.yy,
+                x0=m1.xx * m2.x0 + m1.xy * m2.y0 + m1.x0,
+                y0=m1.yx * m2.x0 + m1.yy * m2.y0 + m1.y0,
+            )
+        elif isinstance(m2, Vector):
+            result = type(m2)(
+                x=m2.x * m1.xx + m2.y * m1.xy + m1.x0,
+                y=m2.x * m1.yx + m2.y * m1.yy + m1.y0,
+            )
+        else:
             result = NotImplemented
-        #end if
-        return \
-            result
-    #end __mul__
+        # end if
+        return result
 
-    def __pow__(m, p) :
-        "raising of a Matrix to an integer power p is equivalent to applying" \
-        " the transformation p times in succession."
-        if isinstance(p, int) :
-            if p < 0 :
+    # end __mul__
+
+    def __pow__(m, p):
+        "raising of a Matrix to an integer power p is equivalent to applying the transformation p times in succession."
+        if isinstance(p, int):
+            if p < 0:
                 m = m.inv()
                 p = -p
-            #end if
+            # end if
             result = type(m).identity
             # O(N) exponentiation algorithm should be good enough for small
             # powers, not expecting large ones
-            for i in range(p) :
+            for i in range(p):
                 result *= m
-            #end for
-        else :
+            # end for
+        else:
             result = NotImplemented
-        #end if
-        return \
-            result
-    #end __pow__
+        # end if
+        return result
+
+    # end __pow__
 
     @classmethod
-    def translate(celf, delta) :
+    def translate(celf, delta):
         "returns a Matrix that translates by the specified delta Vector."
         tx, ty = Vector.from_tuple(delta)
         return celf(1, 0, 0, 1, tx, ty)
-    #end translate
+
+    # end translate
 
     @classmethod
-    def scale(celf, factor, centre = None) :
-        "returns a Matrix that scales by the specified scalar or Vector factors" \
-        " about Vector centre, or the origin if not specified."
-        if isinstance(factor, Real) :
+    def scale(celf, factor, centre=None):
+        "returns a Matrix that scales by the specified scalar or Vector factors about Vector centre, or the origin if not specified."
+        if isinstance(factor, Real):
             result = celf(factor, 0, 0, factor, 0, 0)
-        elif isinstance(factor, Vector) :
+        elif isinstance(factor, Vector):
             result = celf(factor.x, 0, 0, factor.y, 0, 0)
-        elif isinstance(factor, tuple) :
+        elif isinstance(factor, tuple):
             sx, sy = factor
             result = celf(sx, 0, 0, sy, 0, 0)
-        else :
+        else:
             raise TypeError("factor must be a number or a Vector")
-        #end if
-        if centre != None :
+        # end if
+        if centre is not None:
             centre = Vector.from_tuple(centre)
-            result = celf.translate(centre) * result * celf.translate(- centre)
-        #end if
-        return \
-            result
-    #end scale
+            result = celf.translate(centre) * result * celf.translate(-centre)
+        # end if
+        return result
+
+    # end scale
 
     @classmethod
-    def rotate(celf, angle, centre = None) :
-        "returns a Matrix that rotates about the origin by the specified" \
-        " angle in radians about Vector centre, or the origin if not specified."
+    def rotate(celf, angle, centre=None):
+        "returns a Matrix that rotates about the origin by the specified angle in radians about Vector centre, or the origin if not specified."
         cos = math.cos(angle)
         sin = math.sin(angle)
         result = celf(cos, sin, -sin, cos, 0, 0)
-        if centre != None :
+        if centre is not None:
             centre = Vector.from_tuple(centre)
-            result = celf.translate(centre) * result * celf.translate(- centre)
-        #end if
-        return \
-            result
-    #end rotate
+            result = celf.translate(centre) * result * celf.translate(-centre)
+        # end if
+        return result
+
+    # end rotate
 
     @classmethod
-    def skew(celf, vec, centre = None) :
-        "returns a Matrix that skews by the specified vec.x and vec.y factors" \
-        " about Vector centre, or the origin if not specified."
+    def skew(celf, vec, centre=None):
+        "returns a Matrix that skews by the specified vec.x and vec.y factors about Vector centre, or the origin if not specified."
         sx, sy = Vector.from_tuple(vec)
         result = celf(1, sy, sx, 1, 0, 0)
-        if centre != None :
+        if centre is not None:
             centre = Vector.from_tuple(centre)
-            result = celf.translate(centre) * result * celf.translate(- centre)
-        #end if
-        return \
-            result
-    #end skew
+            result = celf.translate(centre) * result * celf.translate(-centre)
+        # end if
+        return result
 
-    def det(self) :
+    # end skew
+
+    def det(self):
         "matrix determinant."
-        return \
-            self.xx * self.yy - self.xy * self.yx
-    #end det
+        return self.xx * self.yy - self.xy * self.yx
 
-    def adj(self) :
+    # end det
+
+    def adj(self):
         "matrix adjoint."
-        return type(self) \
-          (
-            xx = self.yy,
-            yx = - self.yx,
-            xy = - self.xy,
-            yy = self.xx,
-            x0 = self.xy * self.y0 - self.yy * self.x0,
-            y0 = self.yx * self.x0 - self.xx * self.y0,
-          )
-    #end adj
+        return type(self)(
+            xx=self.yy,
+            yx=-self.yx,
+            xy=-self.xy,
+            yy=self.xx,
+            x0=self.xy * self.y0 - self.yy * self.x0,
+            y0=self.yx * self.x0 - self.xx * self.y0,
+        )
 
-    def inv(self) :
+    # end adj
+
+    def inv(self):
         "matrix inverse."
         # computed using minors <http://mathworld.wolfram.com/MatrixInverse.html>
         adj = self.adj()
         det = self.det()
-        return type(self) \
-          (
-            xx = adj.xx / det,
-            yx = adj.yx / det,
-            xy = adj.xy / det,
-            yy = adj.yy / det,
-            x0 = adj.x0 / det,
-            y0 = adj.y0 / det,
-          )
-    #end inv
-    __invert__ = inv # so ~Matrix works
+        return type(self)(
+            xx=adj.xx / det,
+            yx=adj.yx / det,
+            xy=adj.xy / det,
+            yy=adj.yy / det,
+            x0=adj.x0 / det,
+            y0=adj.y0 / det,
+        )
 
-    def map(self, pt) :
+    # end inv
+    __invert__ = inv  # so ~Matrix works
+
+    def map(self, pt):
         "maps a Vector through the Matrix."
         pt = Vector.from_tuple(pt)
-        return type(pt) \
-          (
-            x = pt.x * self.xx + pt.y * self.xy + self.x0,
-            y = pt.x * self.yx + pt.y * self.yy + self.y0
-          )
-    #end map
+        return type(pt)(
+            x=pt.x * self.xx + pt.y * self.xy + self.x0,
+            y=pt.x * self.yx + pt.y * self.yy + self.y0,
+        )
 
-    def mapdelta(self, pt) :
+    # end map
+
+    def mapdelta(self, pt):
         "maps a Vector through the Matrix, ignoring the translation part."
         pt = Vector.from_tuple(pt)
-        return type(pt) \
-          (
-            x = pt.x * self.xx + pt.y * self.xy,
-            y = pt.x * self.yx + pt.y * self.yy
-          )
-    #end mapdelta
+        return type(pt)(
+            x=pt.x * self.xx + pt.y * self.xy, y=pt.x * self.yx + pt.y * self.yy
+        )
 
-    def mapiter(self, pts) :
+    # end mapdelta
+
+    def mapiter(self, pts):
         "maps an iterable of Vectors through the Matrix."
         pts = iter(pts)
-        while True : # until pts raises StopIteration
+        while True:  # until pts raises StopIteration
             yield self.map(next(pts))
-        #end while
-    #end mapiter
+        # end while
 
-    def mapdeltaiter(self, pts) :
-        "maps an iterable of Vectors through the Matrix, ignoring the" \
-        " translation part."
+    # end mapiter
+
+    def mapdeltaiter(self, pts):
+        "maps an iterable of Vectors through the Matrix, ignoring the translation part."
         pts = iter(pts)
-        while True : # until pts raises StopIteration
+        while True:  # until pts raises StopIteration
             yield self.mapdelta(next(pts))
-        #end while
-    #end mapdeltaiter
+        # end while
 
-    def __repr__(self) :
-        return \
-            (
-                "%s(%g, %g, %g, %g, %g, %g)"
-            %
-                (
-                    type(self).__name__,
-                    self.xx, self.yx,
-                    self.xy, self.yy,
-                    self.x0, self.y0,
-                )
-            )
-    #end __repr__
+    # end mapdeltaiter
 
-#end Matrix
+    def __repr__(self):
+        return "{}({:g}, {:g}, {:g}, {:g}, {:g}, {:g})".format(
+            type(self).__name__,
+            self.xx,
+            self.yx,
+            self.xy,
+            self.yy,
+            self.x0,
+            self.y0,
+        )
+
+    # end __repr__
+
+
+# end Matrix
 Matrix.identity = Matrix(1, 0, 0, 1, 0, 0)
 
-def interp(fract, p1, p2) :
+
+def interp(fract, p1, p2):
     "returns the point along p1 to p2 at relative position fract."
     return (p2 - p1) * fract + p1
-#end interp
 
-def distribute(nrdivs, p1 = 0.0, p2 = 1.0, endincl = False) :
-    "returns a sequence of nrdivs values evenly distributed over" \
-    " [p1, p2) (if not endincl) or nrdivs + 1 values over [p1, p2] (if endincl)."
+
+# end interp
+
+
+def distribute(nrdivs, p1=0.0, p2=1.0, endincl=False):
+    "returns a sequence of nrdivs values evenly distributed over [p1, p2) (if not endincl) or nrdivs + 1 values over [p1, p2] (if endincl)."
     interval = p2 - p1
-    return tuple \
-      (
-        interval * (i / nrdivs) + p1
-            for i in range(0, nrdivs + int(endincl))
-      )
-#end distribute
+    return tuple(interval * (i / nrdivs) + p1 for i in range(0, nrdivs + int(endincl)))
 
-class Rect :
-    "an axis-aligned rectangle. The constructor takes the left and top coordinates," \
-    " and the width and height. Or use from_corners to construct one from two Vectors" \
-    " representing opposite corners, or from_dimensions to construct one from a Vector" \
-    " giving the width and height, with the topleft set to (0, 0)."
 
-    __slots__ = ("left", "top", "width", "height") # to forestall typos
+# end distribute
 
-    def __init__(self, left, top, width, height) :
+
+class Rect:
+    "an axis-aligned rectangle. The constructor takes the left and top coordinates, and the width and height. Or use from_corners to construct one from two Vectors representing opposite corners, or from_dimensions to construct one from a Vector giving the width and height, with the topleft set to (0, 0)."
+
+    __slots__ = ("left", "top", "width", "height")  # to forestall typos
+
+    def __init__(self, left, top, width, height):
         self.left = left
         self.top = top
         self.width = width
         self.height = height
-    #end __init__
+
+    # end __init__
 
     @classmethod
-    def from_corners(celf, pt1, pt2) :
+    def from_corners(celf, pt1, pt2):
         "constructs a Rect from two opposite corner Vectors."
         pt1 = Vector.from_tuple(pt1)
         pt2 = Vector.from_tuple(pt2)
@@ -1869,464 +2180,450 @@ class Rect :
         max_x = max(pt1.x, pt2.x)
         min_y = min(pt1.y, pt2.y)
         max_y = max(pt1.y, pt2.y)
-        return \
-            celf(min_x, min_y, max_x - min_x, max_y - min_y)
-    #end from_corners
+        return celf(min_x, min_y, max_x - min_x, max_y - min_y)
+
+    # end from_corners
 
     @classmethod
-    def from_dimensions(celf, pt) :
+    def from_dimensions(celf, pt):
         "a Rect with its top left at (0, 0) and the given width and height."
         pt = Vector.from_tuple(pt)
-        return \
-            celf(0, 0, pt.x, pt.y)
-    #end from_dimensions
+        return celf(0, 0, pt.x, pt.y)
 
-    def flip(self, flip_x = True, flip_y = True) :
-        "returns a Rect describing the same bounds, but with the sign" \
-        " of the width or height flipped, and topleft transposed" \
-        " accordingly."
-        return \
-            type(self) \
-              (
-                (self.left, self.right)[flip_x],
-                (self.top, self.bottom)[flip_y],
-                (self.width, - self.width)[flip_x],
-                (self.height, - self.height)[flip_y],
-              )
-    #end flip
+    # end from_dimensions
 
-    def abs(self, flip_x = True, flip_y = True) :
-        "returns a Rect describing the same bounds, ensuring that the" \
-        " width or height (or both) are non-negative."
-        return \
-            self.flip \
-              (
-                flip_x = flip_x and self.width < 0,
-                flip_y = flip_y and self.height < 0
-              )
-    #end abs
+    def flip(self, flip_x=True, flip_y=True):
+        "returns a Rect describing the same bounds, but with the sign of the width or height flipped, and topleft transposed accordingly."
+        return type(self)(
+            (self.left, self.right)[flip_x],
+            (self.top, self.bottom)[flip_y],
+            (self.width, -self.width)[flip_x],
+            (self.height, -self.height)[flip_y],
+        )
 
-    if HAS.ISCLOSE :
+    # end flip
 
-        def iscloseto(r1, r2, rel_tol = default_rel_tol, abs_tol = default_abs_tol) :
+    def abs(self, flip_x=True, flip_y=True):
+        "returns a Rect describing the same bounds, ensuring that the width or height (or both) are non-negative."
+        return self.flip(
+            flip_x=flip_x and self.width < 0, flip_y=flip_y and self.height < 0
+        )
+
+    # end abs
+
+    if HAS.ISCLOSE:
+
+        def iscloseto(r1, r2, rel_tol=default_rel_tol, abs_tol=default_abs_tol):
             "approximate equality of two Rects to within the specified tolerances."
-            return \
-                (
-                    math.isclose(r1.left, r2.left, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(r1.top, r2.top, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(r1.width, r2.width, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(r1.height, r2.height, rel_tol = rel_tol, abs_tol = abs_tol)
-                )
-        #end iscloseto
+            return (
+                math.isclose(r1.left, r2.left, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(r1.top, r2.top, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(r1.width, r2.width, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(r1.height, r2.height, rel_tol=rel_tol, abs_tol=abs_tol)
+            )
 
-    #end if
+        # end iscloseto
+
+    # end if
 
     @classmethod
-    def from_cairo(celf, r) :
+    def from_cairo(celf, r):
         "converts a CAIRO.rectangle_t to a Rect."
-        return \
-            celf(r.x, r.y, r.width, r.height)
-    #end from_cairo
+        return celf(r.x, r.y, r.width, r.height)
 
-    def to_cairo(self) :
+    # end from_cairo
+
+    def to_cairo(self):
         "converts the Rect to a CAIRO.rectangle_t."
-        return \
-            CAIRO.rectangle_t(self.left, self.top, self.width, self.height)
-    #end to_cairo
+        return CAIRO.rectangle_t(self.left, self.top, self.width, self.height)
 
-    def to_cairo_int(self) :
+    # end to_cairo
+
+    def to_cairo_int(self):
         "converts the Rect to a CAIRO.rectangle_int_t."
         self.assert_isint()
-        return \
-            CAIRO.rectangle_int_t(self.left, self.top, self.width, self.height)
-    #end to_cairo_int
+        return CAIRO.rectangle_int_t(self.left, self.top, self.width, self.height)
+
+    # end to_cairo_int
 
     @property
-    def bottom(self) :
+    def bottom(self):
         "the bottom y-coordinate of the Rect."
-        return \
-            self.top + self.height
-    #end bottom
+        return self.top + self.height
+
+    # end bottom
 
     @property
-    def right(self) :
+    def right(self):
         "the right x-coordinate of the Rect."
-        return \
-            self.left + self.width
-    #end right
+        return self.left + self.width
+
+    # end right
 
     @property
-    def topleft(self) :
+    def topleft(self):
         "the top-left corner point."
-        return \
-            Vector(self.left, self.top)
-    #end topleft
+        return Vector(self.left, self.top)
+
+    # end topleft
 
     @property
-    def botright(self) :
+    def botright(self):
         "the bottom-right corner point."
-        return \
-            Vector(self.left + self.width, self.top + self.height)
-    #end botright
+        return Vector(self.left + self.width, self.top + self.height)
+
+    # end botright
 
     @property
-    def dimensions(self) :
+    def dimensions(self):
         "the dimensions of the Rect as a Vector."
-        return \
-            Vector(self.width, self.height)
-    #end dimensions
+        return Vector(self.width, self.height)
+
+    # end dimensions
 
     @property
-    def middle(self) :
+    def middle(self):
         "the midpoint as a Vector."
-        return \
-            Vector(self.left + self.width / 2, self.top + self.height / 2)
-    #end middle
+        return Vector(self.left + self.width / 2, self.top + self.height / 2)
 
-    def __round__(self) :
+    # end middle
+
+    def __round__(self):
         "returns the Rect with all corner coordinates rounded to integers."
-        return \
-            type(self).from_corners(round(self.topleft), round(self.botright))
-    #end __round__
+        return type(self).from_corners(round(self.topleft), round(self.botright))
 
-    def __floor__(self) :
-        "returns the Rect with the top-left rounded up and the bottom-right" \
-        " rounded down to integers. This gives the largest Rect with integer" \
-        " coordinates that fits within the original."
-        return \
-            type(self).from_corners(math.ceil(self.topleft), math.floor(self.botright))
-    #end __floor__
+    # end __round__
 
-    def __ceil__(self) :
-        "returns the Rect with the top-left rounded down and the bottom-right" \
-        " rounded up to integers. This gives the smallest Rect with integer" \
-        " coordinates that encloses the original."
-        return \
-            type(self).from_corners(math.floor(self.topleft), math.ceil(self.botright))
-    #end __ceil__
+    def __floor__(self):
+        "returns the Rect with the top-left rounded up and the bottom-right rounded down to integers. This gives the largest Rect with integer coordinates that fits within the original."
+        return type(self).from_corners(
+            math.ceil(self.topleft), math.floor(self.botright)
+        )
 
-    def __add__(self, v) :
+    # end __floor__
+
+    def __ceil__(self):
+        "returns the Rect with the top-left rounded down and the bottom-right rounded up to integers. This gives the smallest Rect with integer coordinates that encloses the original."
+        return type(self).from_corners(
+            math.floor(self.topleft), math.ceil(self.botright)
+        )
+
+    # end __ceil__
+
+    def __add__(self, v):
         "add a Rect to a Vector to return the Rect offset by the Vector."
-        if isinstance(v, Vector) :
-            result = type(self)(self.left + v.x, self.top + v.y, self.width, self.height)
-        else :
+        if isinstance(v, Vector):
+            result = type(self)(
+                self.left + v.x, self.top + v.y, self.width, self.height
+            )
+        else:
             result = NotImplemented
-        #end if
-        return \
-            result
-    #end __add__
+        # end if
+        return result
 
-    def __sub__(self, v) :
-        "subtract a Vector from a Rect to return the Rect offset in the" \
-        " opposite direction to the Vector."
-        if isinstance(v, Vector) :
-            result = type(self)(self.left - v.x, self.top - v.y, self.width, self.height)
-        else :
+    # end __add__
+
+    def __sub__(self, v):
+        "subtract a Vector from a Rect to return the Rect offset in the opposite direction to the Vector."
+        if isinstance(v, Vector):
+            result = type(self)(
+                self.left - v.x, self.top - v.y, self.width, self.height
+            )
+        else:
             result = NotImplemented
-        #end if
-        return \
-            result
-    #end __sub__
+        # end if
+        return result
 
-    def __mul__(self, f) :
+    # end __sub__
+
+    def __mul__(self, f):
         "scale a Rect uniformly by a number or non-uniformly by a Vector."
-        if isinstance(f, Vector) :
-            result = type(self)(self.left * f.x, self.top * f.y, self.width * f.x, self.height * f.y)
-        elif isinstance(f, Real) :
-            result = type(self)(self.left * f, self.top * f, self.width * f, self.height * f)
-        else :
+        if isinstance(f, Vector):
+            result = type(self)(
+                self.left * f.x, self.top * f.y, self.width * f.x, self.height * f.y
+            )
+        elif isinstance(f, Real):
+            result = type(self)(
+                self.left * f, self.top * f, self.width * f, self.height * f
+            )
+        else:
             result = NotImplemented
-        #end if
-        return \
-            result
-    #end __mul__
+        # end if
+        return result
+
+    # end __mul__
     __rmul__ = __mul__
 
-    def __div__(self, f) :
+    def __div__(self, f):
         "invserse-scale a Rect uniformly by a number or non-uniformly by a Vector."
-        if isinstance(f, Vector) :
-            result = type(self)(self.left / f.x, self.top / f.y, self.width / f.x, self.height / f.y)
-        elif isinstance(f, Real) :
-            result = type(self)(self.left / f, self.top / f, self.width / f, self.height / f)
-        else :
-            result = NotImplemented
-        #end if
-        return \
-            result
-    #end __div__
-
-    def __eq__(r1, r2) :
-        "equality of two rectangles."
-        return \
-            (
-                isinstance(r2, Rect)
-            and
-                r1.left == r2.left
-            and
-                r1.top == r2.top
-            and
-                r1.width == r2.width
-            and
-                r1.height == r2.height
+        if isinstance(f, Vector):
+            result = type(self)(
+                self.left / f.x, self.top / f.y, self.width / f.x, self.height / f.y
             )
-    #end __eq__
+        elif isinstance(f, Real):
+            result = type(self)(
+                self.left / f, self.top / f, self.width / f, self.height / f
+            )
+        else:
+            result = NotImplemented
+        # end if
+        return result
+
+    # end __div__
+
+    def __eq__(r1, r2):
+        "equality of two rectangles."
+        return (
+            isinstance(r2, Rect)
+            and r1.left == r2.left
+            and r1.top == r2.top
+            and r1.width == r2.width
+            and r1.height == r2.height
+        )
+
+    # end __eq__
 
     @property
-    def is_empty(self) :
+    def is_empty(self):
         "is this Rect empty."
-        return \
-            self.width <= 0 or self.height <= 0
-    #end is_empty
+        return self.width <= 0 or self.height <= 0
 
-    def transform(self, matrix) :
-        "returns the transformation of this Rect by a Matrix. Only" \
-        " scaling and translation is allowed."
-        topleft, topright, botleft, botright = matrix.mapiter \
-          ((
-            self.topleft,
-            Vector(self.right, self.top),
-            Vector(self.left, self.bottom),
-            self.botright,
-          ))
-        assert \
+    # end is_empty
+
+    def transform(self, matrix):
+        "returns the transformation of this Rect by a Matrix. Only scaling and translation is allowed."
+        topleft, topright, botleft, botright = matrix.mapiter(
             (
-                topleft.y == topright.y
-            and
-                topright.x == botright.x
-            and
-                botright.y == botleft.y
-            and
-                botleft.x == topleft.x
+                self.topleft,
+                Vector(self.right, self.top),
+                Vector(self.left, self.bottom),
+                self.botright,
             )
-        return \
-            type(self).from_corners(topleft, botright)
-    #end transform
+        )
+        assert (
+            topleft.y == topright.y
+            and topright.x == botright.x
+            and botright.y == botleft.y
+            and botleft.x == topleft.x
+        )
+        return type(self).from_corners(topleft, botright)
 
-    def union(r1, r2) :
+    # end transform
+
+    def union(r1, r2):
         "smallest rectangle enclosing both rectangles."
-        if r1.is_empty :
+        if r1.is_empty:
             result = r2
-        elif r2.is_empty :
+        elif r2.is_empty:
             result = r1
-        else :
+        else:
             vmin = Vector(min(r1.left, r2.left), min(r1.top, r2.top))
-            vmax = Vector(max(r1.left + r1.width, r2.left + r2.width), max(r1.top + r1.height, r2.top + r2.height))
+            vmax = Vector(
+                max(r1.left + r1.width, r2.left + r2.width),
+                max(r1.top + r1.height, r2.top + r2.height),
+            )
             result = type(r1).from_corners(vmin, vmax)
-        #end if
-        return \
-            result
-    #end union
+        # end if
+        return result
 
-    def intersection(r1, r2) :
+    # end union
+
+    def intersection(r1, r2):
         "largest rectangle contained by both rectangles."
-        if r1.is_empty :
+        if r1.is_empty:
             result = r1
-        elif r2.is_empty :
+        elif r2.is_empty:
             result = r2
-        elif r1.right <= r2.left or r2.right <= r1.left or r1.bottom <= r2.top or r2.bottom <= r1.top :
+        elif (
+            r1.right <= r2.left
+            or r2.right <= r1.left
+            or r1.bottom <= r2.top
+            or r2.bottom <= r1.top
+        ):
             result = Rect.empty
-        else :
+        else:
             vmin = Vector(max(r1.left, r2.left), max(r1.top, r2.top))
             vmax = Vector(min(r1.right, r2.right), min(r1.bottom, r2.bottom))
             result = type(r1).from_corners(vmin, vmax)
-        #end if
-        return \
-            result
-    #end intersection
+        # end if
+        return result
 
-    def __and__(r1, r2) :
+    # end intersection
+
+    def __and__(r1, r2):
         "r1 & r2 = largest rectangle contained by both rectangles."
-        return \
-            r1.intersection(r2)
-    #end __and__
+        return r1.intersection(r2)
 
-    def __or__(r1, r2) :
+    # end __and__
+
+    def __or__(r1, r2):
         "r1 | r2 = smallest rectangle enclosing both rectangles."
-        return \
-            r1.union(r2)
-    #end __union__
+        return r1.union(r2)
 
-    def isint(self) :
+    # end __union__
+
+    def isint(self):
         "are the components signed 32-bit integers."
-        return \
-            (
-                int_fits_bits(self.left, 32)
-            and
-                int_fits_bits(self.top, 32)
-            and
-                int_fits_bits(self.width, 32)
-            and
-                int_fits_bits(self.height, 32)
-            )
-    #end isint
+        return (
+            int_fits_bits(self.left, 32)
+            and int_fits_bits(self.top, 32)
+            and int_fits_bits(self.width, 32)
+            and int_fits_bits(self.height, 32)
+        )
 
-    def assert_isint(self) :
+    # end isint
+
+    def assert_isint(self):
         "checks that the components are signed 32-bit integers."
-        if not self.isint() :
+        if not self.isint():
             raise ValueError("components must be signed 32-bit integers")
-        #end if
-        return \
-            self
-    #end assert_isint
+        # end if
+        return self
 
-    def __repr__(self) :
-        return \
-            (
-                "%%s(%%%(fmt)s, %%%(fmt)s, %%%(fmt)s, %%%(fmt)s)"
-            %
-                {"fmt" : ("g", "d") [self.isint()]}
-            %
-                (type(self).__name__, self.left, self.top, self.width, self.height)
-            )
-    #end __repr__
+    # end assert_isint
 
-    def to_path(self) :
+    def __repr__(self):
+        return (
+            "%%s(%%%(fmt)s, %%%(fmt)s, %%%(fmt)s, %%%(fmt)s)"
+            % {"fmt": ("g", "d")[self.isint()]}
+            % (type(self).__name__, self.left, self.top, self.width, self.height)
+        )
+
+    # end __repr__
+
+    def to_path(self):
         "returns a Path object which draws this rectangle."
-        return \
-            Path \
-              (
-                [
-                    Path.Segment
-                      (
-                        [
-                            Path.Point((self.left, self.top), False),
-                            Path.Point((self.right, self.top), False),
-                            Path.Point((self.right, self.bottom), False),
-                            Path.Point((self.left, self.bottom), False),
-                        ],
-                        True
-                      )
-                ]
-              )
-    #end to_path
+        return Path(
+            [
+                Path.Segment(
+                    [
+                        Path.Point((self.left, self.top), False),
+                        Path.Point((self.right, self.top), False),
+                        Path.Point((self.right, self.bottom), False),
+                        Path.Point((self.left, self.bottom), False),
+                    ],
+                    True,
+                )
+            ]
+        )
 
-    def inset(self, v) :
-        "returns a Rect inset by the specified x and y amounts from this one" \
-        " (use negative values to outset)."
+    # end to_path
+
+    def inset(self, v):
+        "returns a Rect inset by the specified x and y amounts from this one (use negative values to outset)."
         dx, dy = Vector.from_tuple(v)
-        return \
-            type(self)(self.left + dx, self.top + dy, self.width - 2 * dx, self.height - 2 * dy)
-    #end inset
+        return type(self)(
+            self.left + dx, self.top + dy, self.width - 2 * dx, self.height - 2 * dy
+        )
 
-    def position(self, relpt, halign = None, valign = None) :
-        "returns a copy of this Rect repositioned relative to Vector relpt, horizontally" \
-        " according to halign and vertically according to valign (if not None" \
-        " in each case). halign = 0 means the left edge is on the point, while" \
-        " halign = 1 means the right edge is on the point. Similarly valign = 0" \
-        " means the top edge is on the point, while valign = 1 means the bottom" \
-        " edge is on the point. Intermediate values correspond to intermediate" \
-        " linearly-interpolated positions."
+    # end inset
+
+    def position(self, relpt, halign=None, valign=None):
+        "returns a copy of this Rect repositioned relative to Vector relpt, horizontally according to halign and vertically according to valign (if not None in each case). halign = 0 means the left edge is on the point, while halign = 1 means the right edge is on the point. Similarly valign = 0 means the top edge is on the point, while valign = 1 means the bottom edge is on the point. Intermediate values correspond to intermediate linearly-interpolated positions."
         left = self.left
         top = self.top
-        if halign != None :
+        if halign is not None:
             left = relpt.x - interp(halign, 0, self.width)
-        #end if
-        if valign != None :
+        # end if
+        if valign is not None:
             top = relpt.y - interp(valign, 0, self.height)
-        #end if
-        return type(self)(left = left, top = top, width = self.width, height = self.height)
-    #end position
+        # end if
+        return type(self)(left=left, top=top, width=self.width, height=self.height)
 
-    def align(self, within, halign = None, valign = None) :
-        "returns a copy of this Rect repositioned relative to within, which is" \
-        " another Rect, horizontally according to halign and vertically according" \
-        " to valign (if not None in each case). halign = 0 means the left edges" \
-        " coincide, while halign = 1 means the right edges coincide. Similarly" \
-        " valign = 0 means the top edges coincide, while valign = 1 means the" \
-        " bottom edges coincide. Intermediate values correspond to intermediate" \
-        " linearly-interpolated positions."
+    # end position
+
+    def align(self, within, halign=None, valign=None):
+        "returns a copy of this Rect repositioned relative to within, which is another Rect, horizontally according to halign and vertically according to valign (if not None in each case). halign = 0 means the left edges coincide, while halign = 1 means the right edges coincide. Similarly valign = 0 means the top edges coincide, while valign = 1 means the bottom edges coincide. Intermediate values correspond to intermediate linearly-interpolated positions."
         left = self.left
         top = self.top
-        if halign != None :
+        if halign is not None:
             left = interp(halign, within.left, within.left + within.width - self.width)
-        #end if
-        if valign != None :
+        # end if
+        if valign is not None:
             top = interp(valign, within.top, within.top + within.height - self.height)
-        #end if
-        return type(self)(left = left, top = top, width = self.width, height = self.height)
-    #end align
+        # end if
+        return type(self)(left=left, top=top, width=self.width, height=self.height)
 
-    def transform_to(src, dst) :
+    # end align
+
+    def transform_to(src, dst):
         "returns a Matrix which maps this Rect into dst Rect."
-        return \
-            (
-                Matrix.translate(dst.topleft)
-            *
-                Matrix.scale(dst.dimensions / src.dimensions)
-            *
-                Matrix.translate(- src.topleft)
-            )
-    #end transform_to
+        return (
+            Matrix.translate(dst.topleft)
+            * Matrix.scale(dst.dimensions / src.dimensions)
+            * Matrix.translate(-src.topleft)
+        )
 
-    def fit_to(src, dst, outside = False) :
-        "returns a Matrix which maps this Rect onto dst Rect without distortion" \
-        " if the aspect ratios don’t match. Instead, src will be uniformly scaled" \
-        " to the largest possible size that fits within dst if outside is False," \
-        " or to the smallest possible size that dst will fit within if outside is" \
-        " True."
+    # end transform_to
+
+    def fit_to(src, dst, outside=False):
+        "returns a Matrix which maps this Rect onto dst Rect without distortion if the aspect ratios don’t match. Instead, src will be uniformly scaled to the largest possible size that fits within dst if outside is False, or to the smallest possible size that dst will fit within if outside is True."
         scale = dst.dimensions / src.dimensions
         scale = (min, max)[outside](scale.x, scale.y)
-        return \
-          (
-                Matrix.translate(dst.middle)
-            *
-                Matrix.scale((scale, scale))
-            *
-                Matrix.translate(- src.middle)
-          )
-    #end fit_to
+        return (
+            Matrix.translate(dst.middle)
+            * Matrix.scale((scale, scale))
+            * Matrix.translate(-src.middle)
+        )
 
-#end Rect
+    # end fit_to
+
+
+# end Rect
 Rect.empty = Rect(0, 0, 0, 0)
 
-class Glyph :
+
+class Glyph:
     "specifies a glyph index and position relative to the origin."
 
-    __slots__ = ("index", "pos") # to forestall typos
+    __slots__ = ("index", "pos")  # to forestall typos
 
-    def __init__(self, index, pos) :
+    def __init__(self, index, pos):
         pos = Vector.from_tuple(pos)
         self.index = index
         self.pos = pos
-    #end __init__
 
-    def __repr__(self) :
-        return \
-            "Glyph(%d, %s)" % (self.index, repr(self.pos))
-    #end __repr__
+    # end __init__
 
-#end Glyph
+    def __repr__(self):
+        return "Glyph(%d, %s)" % (self.index, repr(self.pos))
 
-def offset_glyphs(glyphs, offset) :
-    "applies an offset Vector to the pos field of an iterable of Glyph" \
-    " objects."
+    # end __repr__
+
+
+# end Glyph
+
+
+def offset_glyphs(glyphs, offset):
+    "applies an offset Vector to the pos field of an iterable of Glyph objects."
     # Q: Why not apply a more general Matrix?
     # A: Because in that case, you are likely to want to apply the
     #    transformation to the glyph shape itself, which this routine
     #    does not (and cannot) do.
-    for glyph in glyphs :
+    for glyph in glyphs:
         yield Glyph(glyph.index, glyph.pos + offset)
-    #end for
-#end offset_glyphs
+    # end for
 
-def glyphs_to_cairo(glyphs) :
+
+# end offset_glyphs
+
+
+def glyphs_to_cairo(glyphs):
     "converts a sequence of Glyph objects to Cairo form."
     nr_glyphs = len(glyphs)
     buf = (nr_glyphs * CAIRO.glyph_t)()
-    for i in range(nr_glyphs) :
+    for i in range(nr_glyphs):
         src = glyphs[i]
         buf[i] = CAIRO.glyph_t(src.index, src.pos.x, src.pos.y)
-    #end for
-    return \
-        buf, nr_glyphs
-#end glyphs_to_cairo
+    # end for
+    return buf, nr_glyphs
 
-default_tolerance = 0.1 # for flattening paths
 
-#+
+# end glyphs_to_cairo
+
+default_tolerance = 0.1  # for flattening paths
+
+# +
 # Notes on object design:
 #
 # Qahirah objects which wrap Cairo objects store address of latter
@@ -2338,2150 +2635,2162 @@ default_tolerance = 0.1 # for flattening paths
 # again, it is nice if the caller gets back the same Qahirah wrapper object.
 # I do this by maintaining a WeakValueDictionary in each of the relevant
 # (base) classes, which is updated by the constructors.
-#-
+# -
 
-class UserDataDict(dict) :
+
+class UserDataDict(dict):
     "a subclass of dict that allows weakrefs."
 
     __slots__ = ("__weakref__",)
 
-    def __init__(self, *args, **kwargs) :
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-    #end __init__
 
-#end UserDataDict
+    # end __init__
 
-class Context :
-    "a Cairo drawing context. Do not instantiate directly; use the create methods." \
-    " Many methods return the context to allow method chaining."
+
+# end UserDataDict
+
+
+class Context:
+    "a Cairo drawing context. Do not instantiate directly; use the create methods. Many methods return the context to allow method chaining."
+
     # <http://cairographics.org/manual/cairo-cairo-t.html>
 
-    __slots__ = ("_cairobj", "_user_data", "__weakref__") # to forestall typos
+    __slots__ = ("_cairobj", "_user_data", "__weakref__")  # to forestall typos
 
     _instances = WeakValueDictionary()
     _ud_refs = WeakValueDictionary()
 
-    def _check(self) :
+    def _check(self):
         # check for error from last operation on this Context.
         check(cairo.cairo_status(self._cairobj))
-    #end _check
 
-    def __new__(celf, _cairobj) :
+    # end _check
+
+    def __new__(celf, _cairobj):
         self = celf._instances.get(_cairobj)
-        if self == None :
+        if self is None:
             self = super().__new__(celf)
             self._cairobj = _cairobj
             self._check()
             user_data = celf._ud_refs.get(_cairobj)
-            if user_data == None :
+            if user_data is None:
                 user_data = UserDataDict()
                 celf._ud_refs[_cairobj] = user_data
-            #end if
+            # end if
             self._user_data = user_data
             celf._instances[_cairobj] = self
-        else :
+        else:
             cairo.cairo_destroy(self._cairobj)
-              # lose extra reference created by caller
-        #end if
-        return \
-            self
-    #end __new__
+            # lose extra reference created by caller
+        # end if
+        return self
+
+    # end __new__
 
     @classmethod
-    def create(celf, surface) :
+    def create(celf, surface):
         "creates a new Context that draws into the specified Surface."
-        if not isinstance(surface, Surface) :
+        if not isinstance(surface, Surface):
             raise TypeError("surface must be a Surface")
-        #end if
-        return \
-            celf(cairo.cairo_create(surface._cairobj))
-    #end create
+        # end if
+        return celf(cairo.cairo_create(surface._cairobj))
+
+    # end create
 
     @classmethod
-    def create_for_dummy(celf) :
-        "creates a new Context that draws into a 0×0-pixel ImageSurface." \
-        " This is useful for doing path/text calculations without drawing."
-        return \
-            celf.create \
-              (
-                ImageSurface.create
-                  (
-                    format = CAIRO.FORMAT_ARGB32,
-                    dimensions = (0, 0)
-                  )
-              )
-    #end create_for_dummy
+    def create_for_dummy(celf):
+        "creates a new Context that draws into a 0×0-pixel ImageSurface. This is useful for doing path/text calculations without drawing."
+        return celf.create(
+            ImageSurface.create(format=CAIRO.FORMAT_ARGB32, dimensions=(0, 0))
+        )
 
-    def __del__(self) :
-        if self._cairobj != None :
+    # end create_for_dummy
+
+    def __del__(self):
+        if self._cairobj is not None:
             cairo.cairo_destroy(self._cairobj)
             self._cairobj = None
-        #end if
-    #end __del__
+        # end if
 
-    def save(self) :
+    # end __del__
+
+    def save(self):
         "saves the Cairo graphics state."
         cairo.cairo_save(self._cairobj)
-        return \
-            self
-    #end save
+        return self
 
-    def restore(self) :
+    # end save
+
+    def restore(self):
         "restores the last saved-but-not-restored graphics state."
         cairo.cairo_restore(self._cairobj)
         self._check()
-        return \
-            self
-    #end restore
+        return self
+
+    # end restore
 
     @property
-    def target(self) :
+    def target(self):
         "the current target Surface."
-        return \
-            Surface(cairo.cairo_surface_reference(cairo.cairo_get_target(self._cairobj)))
-    #end target
+        return Surface(
+            cairo.cairo_surface_reference(cairo.cairo_get_target(self._cairobj))
+        )
 
-    def push_group(self) :
-        "temporarily redirects drawing to a temporary surface with content" \
-        " CAIRO.CONTENT_COLOUR_ALPHA."
+    # end target
+
+    def push_group(self):
+        "temporarily redirects drawing to a temporary surface with content CAIRO.CONTENT_COLOUR_ALPHA."
         cairo.cairo_push_group(self._cairobj)
-        return \
-            self
-    #end push_group
+        return self
 
-    def push_group_with_content(self, content) :
+    # end push_group
+
+    def push_group_with_content(self, content):
         "temporarily redirects drawing to a temporary surface. content is a CAIRO.CONTENT_xxx value."
         cairo.cairo_push_group_with_content(self._cairobj, content)
-        return \
-            self
-    #end push_group_with_content
+        return self
 
-    def pop_group(self) :
-        "pops the last pushed-but-not-popped group redirection, and returns a Pattern" \
-        " containing the result of the redirected drawing."
-        return \
-            Pattern(cairo.cairo_pop_group(self._cairobj))
-    #end pop_group
+    # end push_group_with_content
 
-    def pop_group_to_source(self) :
-        "pops the last pushed-but-not-popped group redirection, and sets the Pattern" \
-        " containing the result of the redirected drawing as the Context.source."
+    def pop_group(self):
+        "pops the last pushed-but-not-popped group redirection, and returns a Pattern containing the result of the redirected drawing."
+        return Pattern(cairo.cairo_pop_group(self._cairobj))
+
+    # end pop_group
+
+    def pop_group_to_source(self):
+        "pops the last pushed-but-not-popped group redirection, and sets the Pattern containing the result of the redirected drawing as the Context.source."
         cairo.cairo_pop_group_to_source(self._cairobj)
         self._check()
-        return \
-            self
-    #end pop_group_to_source
+        return self
+
+    # end pop_group_to_source
 
     @property
-    def group_target(self) :
-        "returns the current group redirection target, or the original Surface if no" \
-        " redirection is in effect."
-        return \
-            Surface(cairo.cairo_surface_reference(cairo.cairo_get_group_target(self._cairobj)))
-    #end group_target
+    def group_target(self):
+        "returns the current group redirection target, or the original Surface if no redirection is in effect."
+        return Surface(
+            cairo.cairo_surface_reference(cairo.cairo_get_group_target(self._cairobj))
+        )
+
+    # end group_target
 
     @property
-    def source(self) :
+    def source(self):
         "the current source Pattern."
-        return \
-            Pattern(cairo.cairo_pattern_reference(cairo.cairo_get_source(self._cairobj)))
-    #end source
+        return Pattern(
+            cairo.cairo_pattern_reference(cairo.cairo_get_source(self._cairobj))
+        )
+
+    # end source
 
     @source.setter
-    def source(self, source) :
+    def source(self, source):
         "the current source Pattern."
         self.set_source(source)
-    #end source
 
-    def set_source(self, source) :
-        "sets a new source Pattern. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the source property."
-        if not isinstance(source, Pattern) :
+    # end source
+
+    def set_source(self, source):
+        "sets a new source Pattern. Use for method chaining; otherwise, it’s probably more convenient to assign to the source property."
+        if not isinstance(source, Pattern):
             raise TypeError("source is not a Pattern")
-        #end if
+        # end if
         cairo.cairo_set_source(self._cairobj, source._cairobj)
         self._check()
-        return \
-            self
-    #end set_source
+        return self
+
+    # end set_source
 
     @property
-    def source_colour(self) :
-        "returns the current source pattern Colour. The current source Pattern must" \
-        " be a plain-colour pattern."
-        return \
-            self.source.colour
-    #end source_colour
+    def source_colour(self):
+        "returns the current source pattern Colour. The current source Pattern must be a plain-colour pattern."
+        return self.source.colour
+
+    # end source_colour
 
     @source_colour.setter
-    def source_colour(self, c) :
+    def source_colour(self, c):
         self.set_source_colour(c)
-    #end source_colour
 
-    def set_source_colour(self, c) :
-        "sets a new plain-colour pattern as the source. c must be a Colour" \
-        " object or a tuple. Use for method-chaining; otherwise it’s probably" \
-        " more convenient to assign to the source_colour property."
+    # end source_colour
+
+    def set_source_colour(self, c):
+        "sets a new plain-colour pattern as the source. c must be a Colour object or a tuple. Use for method-chaining; otherwise it’s probably more convenient to assign to the source_colour property."
         cairo.cairo_set_source_rgba(*((self._cairobj,) + tuple(Colour.from_rgba(c))))
         self._check()
-        return \
-            self
-    #end set_source_colour
+        return self
 
-    def set_source_surface(self, surface, origin) :
+    # end set_source_colour
+
+    def set_source_surface(self, surface, origin):
         "creates a Pattern from a Surface and sets it as the source in one step."
-        if not isinstance(surface, Surface) :
+        if not isinstance(surface, Surface):
             raise TypeError("surface must be a Surface")
-        #end if
+        # end if
         x, y = Vector.from_tuple(origin)
         cairo.cairo_set_source_surface(self._cairobj, surface._cairobj, x, y)
         self._check()
-        return \
-            self
-    #end set_source_surface
+        return self
+
+    # end set_source_surface
 
     @property
-    def antialias(self) :
+    def antialias(self):
         "the current antialias mode, CAIRO.ANTIALIAS_xxx."
-        return \
-            cairo.cairo_get_antialias(self._cairobj)
-    #end antialias
+        return cairo.cairo_get_antialias(self._cairobj)
+
+    # end antialias
 
     @antialias.setter
-    def antialias(self, antialias) :
+    def antialias(self, antialias):
         self.set_antialias(antialias)
-    #end antialias
 
-    def set_antialias(self, antialias) :
-        "sets a new antialias mode. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the antialias property."
+    # end antialias
+
+    def set_antialias(self, antialias):
+        "sets a new antialias mode. Use for method chaining; otherwise, it’s probably more convenient to assign to the antialias property."
         cairo.cairo_set_antialias(self._cairobj, antialias)
-        return \
-            self
-    #end set_antialias
+        return self
+
+    # end set_antialias
 
     @property
-    def dash(self) :
-        "the current line dash setting, as a tuple of two items: the first is a tuple" \
-        " of reals specifying alternating on- and off-lengths, the second is a real" \
-        " specifying the starting offset."
+    def dash(self):
+        "the current line dash setting, as a tuple of two items: the first is a tuple of reals specifying alternating on- and off-lengths, the second is a real specifying the starting offset."
         segs = (cairo.cairo_get_dash_count(self._cairobj) * ct.c_double)()
         offset = ct.c_double()
         cairo.cairo_get_dash(self._cairobj, ct.byref(segs), ct.byref(offset))
-        return \
-            (tuple(i for i in segs), offset.value)
-    #end dash
+        return (tuple(i for i in segs), offset.value)
+
+    # end dash
 
     @dash.setter
-    def dash(self, dashes) :
+    def dash(self, dashes):
         self.set_dash(dashes)
-    #end dash
 
-    def set_dash(self, dashes) :
-        "sets a new line dash. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the dash property."
+    # end dash
+
+    def set_dash(self, dashes):
+        "sets a new line dash. Use for method chaining; otherwise, it’s probably more convenient to assign to the dash property."
         segs, offset = dashes
         nrsegs = len(segs)
         csegs = (nrsegs * ct.c_double)()
-        for i in range(nrsegs) :
+        for i in range(nrsegs):
             csegs[i] = segs[i]
-        #end for
+        # end for
         cairo.cairo_set_dash(self._cairobj, ct.byref(csegs), nrsegs, offset)
-        return \
-            self
-    #end set_dash
+        return self
+
+    # end set_dash
 
     @property
-    def fill_rule(self) :
+    def fill_rule(self):
         "the current fill rule CAIRO.FILL_RULE_xxx."
-        return \
-            cairo.cairo_get_fill_rule(self._cairobj)
-    #end fill_rule
+        return cairo.cairo_get_fill_rule(self._cairobj)
+
+    # end fill_rule
 
     @fill_rule.setter
-    def fill_rule(self, fill_rule) :
+    def fill_rule(self, fill_rule):
         self.set_fill_rule(fill_rule)
-    #end fill_rule
 
-    def set_fill_rule(self, fill_rule) :
-        "sets a new fill rule. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the fill_rule property."
+    # end fill_rule
+
+    def set_fill_rule(self, fill_rule):
+        "sets a new fill rule. Use for method chaining; otherwise, it’s probably more convenient to assign to the fill_rule property."
         cairo.cairo_set_fill_rule(self._cairobj, fill_rule)
-        return \
-            self
-    #end set_fill_rule
+        return self
+
+    # end set_fill_rule
 
     @property
-    def line_cap(self) :
+    def line_cap(self):
         "the current CAIRO.LINE_CAP_xxx setting."
-        return \
-            cairo.cairo_get_line_cap(self._cairobj)
-    #end line_cap
+        return cairo.cairo_get_line_cap(self._cairobj)
+
+    # end line_cap
 
     @line_cap.setter
-    def line_cap(self, line_cap) :
+    def line_cap(self, line_cap):
         self.set_line_cap(line_cap)
-    #end line_cap
 
-    def set_line_cap(self, line_cap) :
-        "sets a new line cap. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the line_cap property."
+    # end line_cap
+
+    def set_line_cap(self, line_cap):
+        "sets a new line cap. Use for method chaining; otherwise, it’s probably more convenient to assign to the line_cap property."
         cairo.cairo_set_line_cap(self._cairobj, line_cap)
-        return \
-            self
-    #end set_line_cap
+        return self
+
+    # end set_line_cap
 
     @property
-    def line_join(self) :
+    def line_join(self):
         "the current CAIRO.LINE_JOIN_xxx setting."
-        return \
-            cairo.cairo_get_line_join(self._cairobj)
-    #end line_join
+        return cairo.cairo_get_line_join(self._cairobj)
+
+    # end line_join
 
     @line_join.setter
-    def line_join(self, line_join) :
+    def line_join(self, line_join):
         self.set_line_join(line_join)
-    #end line_join
 
-    def set_line_join(self, line_join) :
-        "sets a new line join. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the line_join property."
+    # end line_join
+
+    def set_line_join(self, line_join):
+        "sets a new line join. Use for method chaining; otherwise, it’s probably more convenient to assign to the line_join property."
         cairo.cairo_set_line_join(self._cairobj, line_join)
-        return \
-            self
-    #end set_line_join
+        return self
+
+    # end set_line_join
 
     @property
-    def line_width(self) :
+    def line_width(self):
         "the current stroke line width."
-        return \
-            cairo.cairo_get_line_width(self._cairobj)
-    #end line_width
+        return cairo.cairo_get_line_width(self._cairobj)
+
+    # end line_width
 
     @line_width.setter
-    def line_width(self, width) :
+    def line_width(self, width):
         self.set_line_width(width)
-    #end line_width
 
-    def set_line_width(self, width) :
-        "sets a new line width. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the line_width property."
+    # end line_width
+
+    def set_line_width(self, width):
+        "sets a new line width. Use for method chaining; otherwise, it’s probably more convenient to assign to the line_width property."
         cairo.cairo_set_line_width(self._cairobj, width)
-        return \
-            self
-    #end set_line_width
+        return self
+
+    # end set_line_width
 
     @property
-    def mitre_limit(self) :
+    def mitre_limit(self):
         "the current mitre limit."
-        return \
-            cairo.cairo_get_miter_limit(self._cairobj)
-    #end mitre_limit
+        return cairo.cairo_get_miter_limit(self._cairobj)
+
+    # end mitre_limit
 
     @mitre_limit.setter
-    def mitre_limit(self, limit) :
+    def mitre_limit(self, limit):
         self.set_mitre_limit(limit)
-    #end mitre_limit
 
-    def set_mitre_limit(self, limit) :
-        "sets a new mitre limit. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the mitre_limit property."
+    # end mitre_limit
+
+    def set_mitre_limit(self, limit):
+        "sets a new mitre limit. Use for method chaining; otherwise, it’s probably more convenient to assign to the mitre_limit property."
         cairo.cairo_set_miter_limit(self._cairobj, limit)
-        return \
-            self
-    #end set_mitre_limit
+        return self
+
+    # end set_mitre_limit
 
     @property
-    def operator(self) :
+    def operator(self):
         "the current drawing operator, as a CAIRO.OPERATOR_xxx code."
-        return \
-            cairo.cairo_get_operator(self._cairobj)
-    #end operator
+        return cairo.cairo_get_operator(self._cairobj)
+
+    # end operator
 
     @operator.setter
-    def operator(self, op) :
+    def operator(self, op):
         self.set_operator(op)
-    #end operator
 
-    def set_operator(self, op) :
-        "sets a new drawing operator. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the operator property."
+    # end operator
+
+    def set_operator(self, op):
+        "sets a new drawing operator. Use for method chaining; otherwise, it’s probably more convenient to assign to the operator property."
         cairo.cairo_set_operator(self._cairobj, op)
         self._check()
-        return \
-            self
-    #end set_operator
+        return self
+
+    # end set_operator
 
     @property
-    def tolerance(self) :
+    def tolerance(self):
         "the curve-flattening tolerance."
-        return \
-            cairo.cairo_get_tolerance(self._cairobj)
-    #end tolerance
+        return cairo.cairo_get_tolerance(self._cairobj)
+
+    # end tolerance
 
     @tolerance.setter
-    def tolerance(self, tolerance) :
+    def tolerance(self, tolerance):
         self.set_tolerance(tolerance)
-    #end tolerance
 
-    def set_tolerance(self, tolerance) :
-        "sets a new curve-rendering tolerance. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the tolerance property."
+    # end tolerance
+
+    def set_tolerance(self, tolerance):
+        "sets a new curve-rendering tolerance. Use for method chaining; otherwise, it’s probably more convenient to assign to the tolerance property."
         cairo.cairo_set_tolerance(self._cairobj, tolerance)
-        return \
-            self
-    #end set_tolerance
+        return self
 
-    def clip(self) :
-        "sets the current clip to the intersection of itself and the" \
-        " current path, clearing the latter."
+    # end set_tolerance
+
+    def clip(self):
+        "sets the current clip to the intersection of itself and the current path, clearing the latter."
         cairo.cairo_clip(self._cairobj)
-        return \
-            self
-    #end clip
+        return self
 
-    def clip_preserve(self) :
-        "sets the current clip to the intersection of itself and the" \
-        " current path, preserving the latter."
+    # end clip
+
+    def clip_preserve(self):
+        "sets the current clip to the intersection of itself and the current path, preserving the latter."
         cairo.cairo_clip_preserve(self._cairobj)
-        return \
-            self
-    #end clip_preserve
+        return self
+
+    # end clip_preserve
 
     @property
-    def clip_extents(self) :
+    def clip_extents(self):
         "returns a Rect bounding the current clip."
         x1 = ct.c_double()
         x2 = ct.c_double()
         y1 = ct.c_double()
         y2 = ct.c_double()
-        cairo.cairo_clip_extents(self._cairobj, ct.byref(x1), ct.byref(y1), ct.byref(x2), ct.byref(y2))
-        return \
-            Rect(x1.value, y1.value, x2.value - x1.value, y2.value - y1.value)
-    #end clip_extents
+        cairo.cairo_clip_extents(
+            self._cairobj, ct.byref(x1), ct.byref(y1), ct.byref(x2), ct.byref(y2)
+        )
+        return Rect(x1.value, y1.value, x2.value - x1.value, y2.value - y1.value)
 
-    def in_clip(self, pt) :
+    # end clip_extents
+
+    def in_clip(self, pt):
         "is the given Vector pt within the current clip."
         x, y = Vector.from_tuple(pt)
-        return \
-            cairo.cairo_in_clip(self._cairobj, x, y)
-    #end in_clip
+        return cairo.cairo_in_clip(self._cairobj, x, y)
+
+    # end in_clip
 
     @property
-    def clip_rectangle_list(self) :
-        "returns a copy of the current clip region as a list of Rects. Whether this works" \
-        " depends on the backend."
+    def clip_rectangle_list(self):
+        "returns a copy of the current clip region as a list of Rects. Whether this works depends on the backend."
         rects = cairo.cairo_copy_clip_rectangle_list(self._cairobj)
-        try :
+        try:
             check(rects.contents.status)
-            result = list(Rect.from_cairo(rects.contents.rectangles[i]) for i in range(rects.contents.num_rectangles))
-        finally :
+            result = list(
+                Rect.from_cairo(rects.contents.rectangles[i])
+                for i in range(rects.contents.num_rectangles)
+            )
+        finally:
             cairo.cairo_rectangle_list_destroy(rects)
-        #end try
-        return \
-            result
-    #end clip_rectangle_list
+        # end try
+        return result
 
-    def reset_clip(self) :
+    # end clip_rectangle_list
+
+    def reset_clip(self):
         "resets the clip to infinite extent."
         cairo.cairo_reset_clip(self._cairobj)
-        return \
-            self
-    #end reset_clip
+        return self
 
-    def fill(self) :
+    # end reset_clip
+
+    def fill(self):
         "fills the current path, then clears it."
         cairo.cairo_fill(self._cairobj)
-        return \
-            self
-    #end fill
+        return self
 
-    def fill_preserve(self) :
+    # end fill
+
+    def fill_preserve(self):
         "fills the current path, preserving it."
         cairo.cairo_fill_preserve(self._cairobj)
-        return \
-            self
-    #end fill_preserve
+        return self
+
+    # end fill_preserve
 
     @property
-    def fill_extents(self) :
+    def fill_extents(self):
         "returns a Rect bounding the current path if filled."
         x1 = ct.c_double()
         x2 = ct.c_double()
         y1 = ct.c_double()
         y2 = ct.c_double()
-        cairo.cairo_fill_extents(self._cairobj, ct.byref(x1), ct.byref(y1), ct.byref(x2), ct.byref(y2))
-        return \
-            Rect(x1.value, y1.value, x2.value - x1.value, y2.value - y1.value)
-    #end fill_extents
+        cairo.cairo_fill_extents(
+            self._cairobj, ct.byref(x1), ct.byref(y1), ct.byref(x2), ct.byref(y2)
+        )
+        return Rect(x1.value, y1.value, x2.value - x1.value, y2.value - y1.value)
 
-    def in_fill(self, pt) :
+    # end fill_extents
+
+    def in_fill(self, pt):
         "is the given Vector pt within the current path if filled."
         x, y = Vector.from_tuple(pt)
-        return \
-            cairo.cairo_in_fill(self._cairobj, x, y)
-    #end in_fill
+        return cairo.cairo_in_fill(self._cairobj, x, y)
 
-    def mask(self, pattern) :
-        "fills the current clip area with the current source using the alpha channel" \
-        " of the given Pattern as a mask."
-        if not isinstance(pattern, Pattern) :
+    # end in_fill
+
+    def mask(self, pattern):
+        "fills the current clip area with the current source using the alpha channel of the given Pattern as a mask."
+        if not isinstance(pattern, Pattern):
             raise TypeError("pattern is not a Pattern")
-        #end if
+        # end if
         cairo.cairo_mask(self._cairobj, pattern._cairobj)
-        return \
-            self
-    #end mask
+        return self
 
-    def mask_surface(self, surface, origin) :
-        "fills the current clip area with the current source using the alpha channel" \
-        " of the given Surface, offset to origin, as a mask."
-        if not isinstance(surface, Surface) :
+    # end mask
+
+    def mask_surface(self, surface, origin):
+        "fills the current clip area with the current source using the alpha channel of the given Surface, offset to origin, as a mask."
+        if not isinstance(surface, Surface):
             raise TypeError("surface is not a Surface")
-        #end if
+        # end if
         x, y = Vector.from_tuple(origin)
         cairo.cairo_mask_surface(self._cairobj, surface._cairobj, x, y)
-        return \
-            self
-    #end mask_surface
+        return self
 
-    def paint(self) :
+    # end mask_surface
+
+    def paint(self):
         "fills the current clip area with the source."
         cairo.cairo_paint(self._cairobj)
-        return \
-            self
-    #end paint
+        return self
 
-    def paint_with_alpha(self, alpha) :
+    # end paint
+
+    def paint_with_alpha(self, alpha):
         "fills the current clip area with the source faded with the given alpha value."
         cairo.cairo_paint_with_alpha(self._cairobj, alpha)
-        return \
-            self
-    #end paint_with_alpha
+        return self
 
-    def stroke(self) :
+    # end paint_with_alpha
+
+    def stroke(self):
         "strokes the current path, and clears it."
         cairo.cairo_stroke(self._cairobj)
-        return \
-            self
-    #end stroke
+        return self
 
-    def stroke_preserve(self) :
+    # end stroke
+
+    def stroke_preserve(self):
         "strokes the current path, preserving it."
         cairo.cairo_stroke_preserve(self._cairobj)
-        return \
-            self
-    #end stroke_preserve
+        return self
+
+    # end stroke_preserve
 
     @property
-    def stroke_extents(self) :
+    def stroke_extents(self):
         "returns a Rect bounding the current path if stroked."
         x1 = ct.c_double()
         x2 = ct.c_double()
         y1 = ct.c_double()
         y2 = ct.c_double()
-        cairo.cairo_stroke_extents(self._cairobj, ct.byref(x1), ct.byref(y1), ct.byref(x2), ct.byref(y2))
-        return \
-            Rect(x1.value, y1.value, x2.value - x1.value, y2.value - y1.value)
-    #end stroke_extents
+        cairo.cairo_stroke_extents(
+            self._cairobj, ct.byref(x1), ct.byref(y1), ct.byref(x2), ct.byref(y2)
+        )
+        return Rect(x1.value, y1.value, x2.value - x1.value, y2.value - y1.value)
 
-    def in_stroke(self, pt) :
+    # end stroke_extents
+
+    def in_stroke(self, pt):
         "is the given Vector pt within the current path if stroked."
         x, y = Vector.from_tuple(pt)
-        return \
-            cairo.cairo_in_stroke(self._cairobj, x, y)
-    #end in_stroke
+        return cairo.cairo_in_stroke(self._cairobj, x, y)
 
-    def copy_page(self) :
+    # end in_stroke
+
+    def copy_page(self):
         "emits the current page for Surfaces that support multiple pages."
         cairo.cairo_copy_page(self._cairobj)
         self._check()
-        return \
-            self
-    #end copy_page
+        return self
 
-    def show_page(self) :
+    # end copy_page
+
+    def show_page(self):
         "emits and clears the current page for Surfaces that support multiple pages."
         cairo.cairo_show_page(self._cairobj)
         self._check()
-        return \
-            self
-    #end show_page
+        return self
+
+    # end show_page
 
     @property
-    def user_data(self) :
+    def user_data(self):
         "a dict, initially empty, which may be used by caller for any purpose."
-        return \
-            self._user_data
-    #end user_data
+        return self._user_data
+
+    # end user_data
 
     # Cairo user_data not exposed to caller, probably not useful
 
     # paths <http://cairographics.org/manual/cairo-Paths.html>
 
-    def copy_path(self) :
+    def copy_path(self):
         "returns a copy of the current path as a Path object."
         temp = cairo.cairo_copy_path(self._cairobj)
-        try :
+        try:
             result = Path.from_cairo(temp)
-        finally :
+        finally:
             cairo.cairo_path_destroy(temp)
-        #end try
-        return \
-            result
-    #end copy_path
+        # end try
+        return result
 
-    def copy_path_flat(self) :
-        "returns a copy of the current path as a Path object, with curves" \
-        " flattened to line segments."
+    # end copy_path
+
+    def copy_path_flat(self):
+        "returns a copy of the current path as a Path object, with curves flattened to line segments."
         temp = cairo.cairo_copy_path_flat(self._cairobj)
-        try :
+        try:
             result = Path.from_cairo(temp)
-        finally :
+        finally:
             cairo.cairo_path_destroy(temp)
-        #end try
-        return \
-            result
-    #end copy_path_flat
+        # end try
+        return result
 
-    def append_path(self, path, matrix = None) :
-        "appends another Path onto the current path, optionally transformed" \
-        " by a Matrix."
+    # end copy_path_flat
+
+    def append_path(self, path, matrix=None):
+        "appends another Path onto the current path, optionally transformed by a Matrix."
         # Note I do not use cairo_append_path because my Path structure
         # is implemented entirely in Python.
-        if not isinstance(path, Path) :
+        if not isinstance(path, Path):
             raise TypeError("path is not a Path")
-        #end if
+        # end if
         path.draw(self, matrix)
-        return \
-            self
-    #end append_path
+        return self
+
+    # end append_path
 
     @property
-    def has_current_point(self) :
+    def has_current_point(self):
         "is current_point currently defined."
-        return \
-            bool(cairo.cairo_has_current_point(self._cairobj))
-    #end has_current_point
+        return bool(cairo.cairo_has_current_point(self._cairobj))
+
+    # end has_current_point
 
     @property
-    def current_point(self) :
+    def current_point(self):
         "returns the current point if defined, else None."
-        if self.has_current_point :
+        if self.has_current_point:
             x = ct.c_double()
             y = ct.c_double()
             cairo.cairo_get_current_point(self._cairobj, ct.byref(x), ct.byref(y))
             result = Vector(x.value, y.value)
-        else :
+        else:
             result = None
-        #end if
-        return \
-            result
-    #end current_point
+        # end if
+        return result
 
-    def new_path(self) :
+    # end current_point
+
+    def new_path(self):
         "clears the current path."
         cairo.cairo_new_path(self._cairobj)
-        return \
-            self
-    #end new_path
+        return self
 
-    def new_sub_path(self) :
+    # end new_path
+
+    def new_sub_path(self):
         "clears the current_point without actually affecting the current path."
         cairo.cairo_new_sub_path(self._cairobj)
-        return \
-            self
-    #end new_sub_path
+        return self
 
-    def close_path(self) :
+    # end new_sub_path
+
+    def close_path(self):
         "draws a line from the current point back to the start of the current path segment."
         cairo.cairo_close_path(self._cairobj)
-        return \
-            self
-    #end close_path
+        return self
 
-    def arc(self, centre, radius, angle1, angle2, negative) :
-        "draws a segment of a circular arc in the positive-x-to-positive-y" \
-        " direction (if not negative) or the positive-y-to-positive-x direction" \
-        " (if negative). centre can be a Vector or a tuple of 2 coord values."
+    # end close_path
+
+    def arc(self, centre, radius, angle1, angle2, negative):
+        "draws a segment of a circular arc in the positive-x-to-positive-y direction (if not negative) or the positive-y-to-positive-x direction (if negative). centre can be a Vector or a tuple of 2 coord values."
         centre = Vector.from_tuple(centre)
-        getattr(cairo, ("cairo_arc", "cairo_arc_negative")[negative]) \
-            (self._cairobj, centre.x, centre.y, radius, angle1, angle2)
-        return \
-            self
-    #end arc
+        getattr(cairo, ("cairo_arc", "cairo_arc_negative")[negative])(
+            self._cairobj, centre.x, centre.y, radius, angle1, angle2
+        )
+        return self
 
-    def curve_to(self, p1, p2, p3) :
-        "curve_to(p1, p2, p3) or curve_to((x1, y1), (x2, y2), (x3, y3)) -- draws a cubic" \
-        " Bézier curve from the current point through the specified control points." \
-        " Does a move_to(p1) first if there is no current point."
+    # end arc
+
+    def curve_to(self, p1, p2, p3):
+        "curve_to(p1, p2, p3) or curve_to((x1, y1), (x2, y2), (x3, y3)) -- draws a cubic Bézier curve from the current point through the specified control points. Does a move_to(p1) first if there is no current point."
         p1 = Vector.from_tuple(p1)
         p2 = Vector.from_tuple(p2)
         p3 = Vector.from_tuple(p3)
         cairo.cairo_curve_to(self._cairobj, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
-        return \
-            self
-    #end curve_to
+        return self
 
-    def line_to(self, p) :
-        "line_to(p) or line_to((x, y)) -- draws a line from the current point to the" \
-        " new point. Acts like move_to(p) if there is no current point."
+    # end curve_to
+
+    def line_to(self, p):
+        "line_to(p) or line_to((x, y)) -- draws a line from the current point to the new point. Acts like move_to(p) if there is no current point."
         p = Vector.from_tuple(p)
         cairo.cairo_line_to(self._cairobj, p.x, p.y)
-        return \
-            self
-    #end line_to
+        return self
 
-    def move_to(self, p) :
+    # end line_to
+
+    def move_to(self, p):
         "move_to(p) or move_to((x, y)) -- sets the current point to the new point."
         p = Vector.from_tuple(p)
         cairo.cairo_move_to(self._cairobj, p.x, p.y)
-        return \
-            self
-    #end move_to
+        return self
 
-    def rectangle(self, rect) :
+    # end move_to
+
+    def rectangle(self, rect):
         "appends a rectangular outline to the current path."
-        cairo.cairo_rectangle(self._cairobj, rect.left, rect.top, rect.width, rect.height)
-        return \
-            self
-    #end rectangle
+        cairo.cairo_rectangle(
+            self._cairobj, rect.left, rect.top, rect.width, rect.height
+        )
+        return self
 
-    def glyph_path(self, glyphs) :
-        "glyphs is a sequence of Glyph objects; appends the glyph outlines to" \
-        " the current path at the specified positions."
+    # end rectangle
+
+    def glyph_path(self, glyphs):
+        "glyphs is a sequence of Glyph objects; appends the glyph outlines to the current path at the specified positions."
         buf, nr_glyphs = glyphs_to_cairo(glyphs)
         cairo.cairo_glyph_path(self._cairobj, ct.byref(buf), nr_glyphs)
-        return \
-            self
-    #end glyph_path
+        return self
 
-    def text_path(self, text) :
+    # end glyph_path
+
+    def text_path(self, text):
         "adds text outlines to the current path."
         cairo.cairo_text_path(self._cairobj, text.encode("utf-8"))
-        return \
-            self
-    #end text_path
+        return self
 
-    def rel_curve_to(self, p1, p2, p3) :
-        "rel_curve_to(p1, p2, p3) or rel_curve_to((x1, y1), (x2, y2), (x3, y3)) -- does" \
-        " a curve_to through the specified control points interpreted as offsets from" \
-        " the current point. There must be a current point."
+    # end text_path
+
+    def rel_curve_to(self, p1, p2, p3):
+        "rel_curve_to(p1, p2, p3) or rel_curve_to((x1, y1), (x2, y2), (x3, y3)) -- does a curve_to through the specified control points interpreted as offsets from the current point. There must be a current point."
         p1 = Vector.from_tuple(p1)
         p2 = Vector.from_tuple(p2)
         p3 = Vector.from_tuple(p3)
         cairo.cairo_rel_curve_to(self._cairobj, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
-        return \
-            self
-    #end rel_curve_to
+        return self
 
-    def rel_line_to(self, p) :
-        "rel_line_to(p) or rel_line_to((x, y)) -- does a line_to to the specified point" \
-        " interpreted as an offset from the current point. There must be a current point."
+    # end rel_curve_to
+
+    def rel_line_to(self, p):
+        "rel_line_to(p) or rel_line_to((x, y)) -- does a line_to to the specified point interpreted as an offset from the current point. There must be a current point."
         p = Vector.from_tuple(p)
         cairo.cairo_rel_line_to(self._cairobj, p.x, p.y)
-        return \
-            self
-    #end rel_line_to
+        return self
 
-    def rel_move_to(self, p) :
-        "rel_move_to(p) or rel_move_to((x, y)) -- offsets the current point by the" \
-        " specified Vector amount. There must be a current point."
+    # end rel_line_to
+
+    def rel_move_to(self, p):
+        "rel_move_to(p) or rel_move_to((x, y)) -- offsets the current point by the specified Vector amount. There must be a current point."
         p = Vector.from_tuple(p)
         cairo.cairo_rel_move_to(self._cairobj, p.x, p.y)
-        return \
-            self
-    #end rel_move_to
+        return self
+
+    # end rel_move_to
 
     @property
-    def path_extents(self) :
+    def path_extents(self):
         "returns a Rect bounding the current path."
         x1 = ct.c_double()
         x2 = ct.c_double()
         y1 = ct.c_double()
         y2 = ct.c_double()
-        cairo.cairo_path_extents(self._cairobj, ct.byref(x1), ct.byref(y1), ct.byref(x2), ct.byref(y2))
-        return \
-            Rect(x1.value, y1.value, x2.value - x1.value, y2.value - y1.value)
-    #end path_extents
+        cairo.cairo_path_extents(
+            self._cairobj, ct.byref(x1), ct.byref(y1), ct.byref(x2), ct.byref(y2)
+        )
+        return Rect(x1.value, y1.value, x2.value - x1.value, y2.value - y1.value)
+
+    # end path_extents
 
     # Transformations <http://cairographics.org/manual/cairo-Transformations.html>
 
-    def translate(self, v) :
-        "translate(Vector) or translate((x, y))\n" \
-        "applies a translation to the current coordinate system."
+    def translate(self, v):
+        "translate(Vector) or translate((x, y))\napplies a translation to the current coordinate system."
         tx, ty = Vector.from_tuple(v)
         cairo.cairo_translate(self._cairobj, tx, ty)
-        return \
-            self
-    #end translate
+        return self
 
-    def scale(self, s) :
-        "scale(Vector) or scale((x, y)) or scale(Real)\n" \
-        "applies a scaling to the current coordinate system."
-        if isinstance(s, Real) :
+    # end translate
+
+    def scale(self, s):
+        "scale(Vector) or scale((x, y)) or scale(Real)\napplies a scaling to the current coordinate system."
+        if isinstance(s, Real):
             sx = sy = s
-        elif isinstance(s, Vector) or isinstance(s, tuple) :
+        elif isinstance(s, Vector) or isinstance(s, tuple):
             sx, sy = tuple(s)
-        else :
+        else:
             raise TypeError("s must be a number or a Vector")
-        #end if
+        # end if
         cairo.cairo_scale(self._cairobj, sx, sy)
-        return \
-            self
-    #end scale
+        return self
 
-    def rotate(self, angle) :
+    # end scale
+
+    def rotate(self, angle):
         "applies a rotation by the specified angle to the current coordinate system."
         cairo.cairo_rotate(self._cairobj, angle)
-        return \
-            self
-    #end rotate
+        return self
 
-    def transform(self, m) :
+    # end rotate
+
+    def transform(self, m):
         "appends Matrix m onto the current coordinate transformation."
         m = m.to_cairo()
         cairo.cairo_transform(self._cairobj, ct.byref(m))
-        return \
-            self
-    #end transform
+        return self
+
+    # end transform
 
     @property
-    def matrix(self) :
+    def matrix(self):
         "the current transformation Matrix."
         result = CAIRO.matrix_t()
         cairo.cairo_get_matrix(self._cairobj, ct.byref(result))
-        return \
-            Matrix.from_cairo(result)
-    #end matrix
+        return Matrix.from_cairo(result)
+
+    # end matrix
 
     @matrix.setter
-    def matrix(self, m) :
+    def matrix(self, m):
         self.set_matrix(m)
-    #end matrix
 
-    def set_matrix(self, m) :
-        "sets a new transformation matrix. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the matrix property."
+    # end matrix
+
+    def set_matrix(self, m):
+        "sets a new transformation matrix. Use for method chaining; otherwise, it’s probably more convenient to assign to the matrix property."
         m = m.to_cairo()
         cairo.cairo_set_matrix(self._cairobj, ct.byref(m))
         self._check()
-        return \
-            self
-    #end set_matrix
+        return self
 
-    def identity_matrix(self) :
+    # end set_matrix
+
+    def identity_matrix(self):
         "resets the coordinate transformation to the identity Matrix."
         cairo.cairo_identity_matrix(self._cairobj)
-        return \
-            self
-    #end identity_matrix
+        return self
 
-    def user_to_device(self, p) :
-        "returns the transformed Vector in device coordinates corresponding to Vector" \
-        " p in user coordinates."
+    # end identity_matrix
+
+    def user_to_device(self, p):
+        "returns the transformed Vector in device coordinates corresponding to Vector p in user coordinates."
         x = ct.c_double()
         y = ct.c_double()
         x.value, y.value = Vector.from_tuple(p)
         cairo.cairo_user_to_device(self._cairobj, ct.byref(x), ct.byref(y))
-        return \
-            Vector(x.value, y.value)
-    #end user_to_device
+        return Vector(x.value, y.value)
 
-    def user_to_device_distance(self, p) :
-        "returns the transformed Vector in device coordinates corresponding to Vector" \
-        " p in user coordinates, ignoring any translation."
+    # end user_to_device
+
+    def user_to_device_distance(self, p):
+        "returns the transformed Vector in device coordinates corresponding to Vector p in user coordinates, ignoring any translation."
         x = ct.c_double()
         y = ct.c_double()
         x.value, y.value = Vector.from_tuple(p)
         cairo.cairo_user_to_device_distance(self._cairobj, ct.byref(x), ct.byref(y))
-        return \
-            Vector(x.value, y.value)
-    #end user_to_device_distance
+        return Vector(x.value, y.value)
 
-    def device_to_user(self, p) :
-        "returns the transformed Vector in user coordinates corresponding to Vector" \
-        " p in device coordinates."
+    # end user_to_device_distance
+
+    def device_to_user(self, p):
+        "returns the transformed Vector in user coordinates corresponding to Vector p in device coordinates."
         x = ct.c_double()
         y = ct.c_double()
         x.value, y.value = Vector.from_tuple(p)
         cairo.cairo_device_to_user(self._cairobj, ct.byref(x), ct.byref(y))
-        return \
-            Vector(x.value, y.value)
-    #end device_to_user
+        return Vector(x.value, y.value)
 
-    def device_to_user_distance(self, p) :
-        "returns the transformed Vector in user coordinates corresponding to Vector" \
-        " p in device coordinates, ignoring any translation."
+    # end device_to_user
+
+    def device_to_user_distance(self, p):
+        "returns the transformed Vector in user coordinates corresponding to Vector p in device coordinates, ignoring any translation."
         x = ct.c_double()
         y = ct.c_double()
         x.value, y.value = Vector.from_tuple(p)
         cairo.cairo_device_to_user_distance(self._cairobj, ct.byref(x), ct.byref(y))
-        return \
-            Vector(x.value, y.value)
-    #end device_to_user_distance
+        return Vector(x.value, y.value)
+
+    # end device_to_user_distance
 
     # Text <http://cairographics.org/manual/cairo-text.html>
     # (except toy_font_face stuff, which goes in FontFace)
 
-    def select_font_face(self, family, slant, weight) :
+    def select_font_face(self, family, slant, weight):
         "toy selection of a font face."
-        cairo.cairo_select_font_face(self._cairobj, family.encode("utf-8"), slant, weight)
-        return \
-            self
-    #end select_font_face
+        cairo.cairo_select_font_face(
+            self._cairobj, family.encode("utf-8"), slant, weight
+        )
+        return self
 
-    def set_font_size(self, size) :
+    # end select_font_face
+
+    def set_font_size(self, size):
         "sets the font matrix to a scaling by the specified size."
         cairo.cairo_set_font_size(self._cairobj, size)
-        return \
-            self
-    #end set_font_size
+        return self
+
+    # end set_font_size
 
     @property
-    def font_matrix(self) :
+    def font_matrix(self):
         "the current font matrix."
         result = CAIRO.matrix_t()
         cairo.cairo_get_font_matrix(self._cairobj, ct.byref(result))
-        return \
-            Matrix.from_cairo(result)
-    #end font_matrix
+        return Matrix.from_cairo(result)
+
+    # end font_matrix
 
     @font_matrix.setter
-    def font_matrix(self, matrix) :
+    def font_matrix(self, matrix):
         self.set_font_matrix(matrix)
-    #end font_matrix
 
-    def set_font_matrix(self, matrix) :
-        "sets a new font matrix. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the font_matrix property."
-        if not isinstance(matrix, Matrix) :
+    # end font_matrix
+
+    def set_font_matrix(self, matrix):
+        "sets a new font matrix. Use for method chaining; otherwise, it’s probably more convenient to assign to the font_matrix property."
+        if not isinstance(matrix, Matrix):
             raise TypeError("matrix must be a Matrix")
-        #end if
+        # end if
         matrix = matrix.to_cairo()
         cairo.cairo_set_font_matrix(self._cairobj, ct.byref(matrix))
-        return \
-            self
-    #end set_font_matrix
+        return self
+
+    # end set_font_matrix
 
     @property
-    def font_options(self) :
+    def font_options(self):
         "a copy of the current font options."
         result = FontOptions.create()
         cairo.cairo_get_font_options(self._cairobj, result._cairobj)
-        return \
-            result
-    #end font_options
+        return result
+
+    # end font_options
 
     @font_options.setter
-    def font_options(self, options) :
+    def font_options(self, options):
         self.set_font_options(options)
-    #end font_options
 
-    def set_font_options(self, options) :
-        "sets new font options. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the font_options property."
-        if not isinstance(options, FontOptions) :
+    # end font_options
+
+    def set_font_options(self, options):
+        "sets new font options. Use for method chaining; otherwise, it’s probably more convenient to assign to the font_options property."
+        if not isinstance(options, FontOptions):
             raise TypeError("options must be a FontOptions")
-        #end if
+        # end if
         cairo.cairo_set_font_options(self._cairobj, options._cairobj)
-        return \
-            self
-    #end set_font_options
+        return self
+
+    # end set_font_options
 
     @property
-    def font_face(self) :
+    def font_face(self):
         "the current font face."
-        return \
-            FontFace(cairo.cairo_font_face_reference(cairo.cairo_get_font_face(self._cairobj)))
-    #end font_face
+        return FontFace(
+            cairo.cairo_font_face_reference(cairo.cairo_get_font_face(self._cairobj))
+        )
+
+    # end font_face
 
     @font_face.setter
-    def font_face(self, font_face) :
+    def font_face(self, font_face):
         self.set_font_face(font_face)
-    #end font_face
 
-    def set_font_face(self, font_face) :
-        "sets a new font face. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the font_face property."
-        if not isinstance(font_face, FontFace) :
+    # end font_face
+
+    def set_font_face(self, font_face):
+        "sets a new font face. Use for method chaining; otherwise, it’s probably more convenient to assign to the font_face property."
+        if not isinstance(font_face, FontFace):
             raise TypeError("font_face must be a FontFace")
-        #end if
+        # end if
         cairo.cairo_set_font_face(self._cairobj, font_face._cairobj)
-        return \
-            self
-    #end set_font_face
+        return self
+
+    # end set_font_face
 
     @property
-    def scaled_font(self) :
+    def scaled_font(self):
         "the current scaled font."
-        return \
-            ScaledFont(cairo.cairo_scaled_font_reference(cairo.cairo_get_scaled_font(self._cairobj)))
-    #end scaled_font
+        return ScaledFont(
+            cairo.cairo_scaled_font_reference(
+                cairo.cairo_get_scaled_font(self._cairobj)
+            )
+        )
+
+    # end scaled_font
 
     @scaled_font.setter
-    def scaled_font(self, scaled_font) :
+    def scaled_font(self, scaled_font):
         self.set_scaled_font(scaled_font)
-    #end scaled_font
 
-    def set_scaled_font(self, scaled_font) :
-        "sets a new scaled font face. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the scaled_font property."
-        if not isinstance(scaled_font, ScaledFont) :
+    # end scaled_font
+
+    def set_scaled_font(self, scaled_font):
+        "sets a new scaled font face. Use for method chaining; otherwise, it’s probably more convenient to assign to the scaled_font property."
+        if not isinstance(scaled_font, ScaledFont):
             raise TypeError("scaled_font must be a ScaledFont")
-        #end if
+        # end if
         cairo.cairo_set_scaled_font(self._cairobj, scaled_font._cairobj)
-        return \
-            self
-    #end set_scaled_font
+        return self
 
-    def show_text(self, text) :
+    # end set_scaled_font
+
+    def show_text(self, text):
         "renders the specified text starting at the current point."
         cairo.cairo_show_text(self._cairobj, text.encode("utf-8"))
-        return \
-            self
-    #end show_text
+        return self
 
-    def show_glyphs(self, glyphs) :
-        "glyphs must be a sequence of Glyph objects, to be rendered starting" \
-        " at the specified positions."
+    # end show_text
+
+    def show_glyphs(self, glyphs):
+        "glyphs must be a sequence of Glyph objects, to be rendered starting at the specified positions."
         buf, nr_glyphs = glyphs_to_cairo(glyphs)
         cairo.cairo_show_glyphs(self._cairobj, ct.byref(buf), nr_glyphs)
-        return \
-            self
-    #end show_glyphs
+        return self
 
-    def show_text_glyphs(self, text, glyphs, clusters, cluster_flags) :
-        "displays an array of Glyphs, also including text and cluster information" \
-        " (for, e.g., searching/indexing/selection purposes) if the back-end supports" \
-        " it. clusters is a sequence of 2-tuples, (nr_chars/nr_bytes, nr_glyphs); the" \
-        " first element of each pair is a number of characters if text is a Unicode string," \
-        " a number of bytes if text is a bytes object. If cluster_flags has" \
-        " CAIRO.TEXT_CLUSTER_FLAG_BACKWARD, set, then the numbers of glyphs in the clusters" \
-        " count from the end of the Glyphs array, not from the start."
+    # end show_glyphs
+
+    def show_text_glyphs(self, text, glyphs, clusters, cluster_flags):
+        "displays an array of Glyphs, also including text and cluster information (for, e.g., searching/indexing/selection purposes) if the back-end supports it. clusters is a sequence of 2-tuples, (nr_chars/nr_bytes, nr_glyphs); the first element of each pair is a number of characters if text is a Unicode string, a number of bytes if text is a bytes object. If cluster_flags has CAIRO.TEXT_CLUSTER_FLAG_BACKWARD, set, then the numbers of glyphs in the clusters count from the end of the Glyphs array, not from the start."
         encode = not isinstance(text, bytes)
         nr_clusters = len(clusters)
-        if encode :
+        if encode:
             c_text = text.encode("utf-8")
             e_clusters = []
             pos = 0
-            for c in clusters :
+            for c in clusters:
                 # convert cluster num_chars to num_bytes
                 next_pos = pos + c[0]
-                e_clusters.append \
-                  (
-                    (len(text[pos:next_pos].encode("utf-8")), c[1])
-                  )
+                e_clusters.append((len(text[pos:next_pos].encode("utf-8")), c[1]))
                 pos = next_pos
-            #end for
-        else :
+            # end for
+        else:
             c_text = text
             e_clusters = clusters
-        #end if
+        # end if
         c_glyphs, nr_glyphs = glyphs_to_cairo(glyphs)
         c_clusters = (nr_clusters * CAIRO.cluster_t)()
-        for i, c in enumerate(e_clusters) :
+        for i, c in enumerate(e_clusters):
             c_clusters[i] = CAIRO.cluster_t(c[0], c[1])
-        #end for
-        cairo.cairo_show_text_glyphs(self._cairobj, c_text, len(c_text), ct.byref(c_glyphs), nr_glyphs, ct.byref(c_clusters), nr_clusters, cluster_flags)
-        return \
-            self
-    #end show_text_glyphs
+        # end for
+        cairo.cairo_show_text_glyphs(
+            self._cairobj,
+            c_text,
+            len(c_text),
+            ct.byref(c_glyphs),
+            nr_glyphs,
+            ct.byref(c_clusters),
+            nr_clusters,
+            cluster_flags,
+        )
+        return self
+
+    # end show_text_glyphs
 
     @property
-    def font_extents(self) :
+    def font_extents(self):
         "returns a FontExtents object giving information about the current font settings."
         result = CAIRO.font_extents_t()
         cairo.cairo_font_extents(self._cairobj, ct.byref(result))
-        return \
-            FontExtents.from_cairo(result)
-    #end font_extents
+        return FontExtents.from_cairo(result)
 
-    def text_extents(self, text) :
-        "returns a TextExtents object giving information about drawing the" \
-        " specified text at the current font settings."
+    # end font_extents
+
+    def text_extents(self, text):
+        "returns a TextExtents object giving information about drawing the specified text at the current font settings."
         result = CAIRO.text_extents_t()
         cairo.cairo_text_extents(self._cairobj, text.encode("utf-8"), ct.byref(result))
-        return \
-            TextExtents.from_cairo(result)
-    #end text_extents
+        return TextExtents.from_cairo(result)
 
-    def glyph_extents(self, glyphs) :
-        "returns a TextExtents object giving information about drawing the" \
-        " specified sequence of Glyphs at the current font settings."
+    # end text_extents
+
+    def glyph_extents(self, glyphs):
+        "returns a TextExtents object giving information about drawing the specified sequence of Glyphs at the current font settings."
         buf, nr_glyphs = glyphs_to_cairo(glyphs)
         result = CAIRO.text_extents_t()
         cairo.cairo_glyph_extents(self._cairobj, buf, nr_glyphs, ct.byref(result))
-        return \
-            TextExtents.from_cairo(result)
-    #end glyph_extents
+        return TextExtents.from_cairo(result)
 
-#end Context
+    # end glyph_extents
 
-def file_write_func(fileobj) :
-    "fileobj must have a .write method that accepts a single bytes argument." \
-    " This function returns a write_func that can be passed to the various" \
-    " create_for_xxx_stream and write_to_xxx_stream methods which will write" \
-    " the data to the file object. The write_func ignores its closure argument," \
-    " so feel free to pass None for that."
 
-    def write_data(_, data, length) :
+# end Context
+
+
+def file_write_func(fileobj):
+    "fileobj must have a .write method that accepts a single bytes argument. This function returns a write_func that can be passed to the various create_for_xxx_stream and write_to_xxx_stream methods which will write the data to the file object. The write_func ignores its closure argument, so feel free to pass None for that."
+
+    def write_data(_, data, length):
         buf = array.array("B", (0,) * length)
         ct.memmove(buf.buffer_info()[0], data, length)
         fileobj.write(buf.tobytes())
-        return \
-            CAIRO.STATUS_SUCCESS
-    #end write_data
+        return CAIRO.STATUS_SUCCESS
 
-#begin file_write_func
-    return \
-        write_data
-#end file_write_func
+    # end write_data
 
-class Surface :
-    "base class for Cairo surfaces. Do not instantiate directly; use create methods" \
-    " provided by subclasses."
+    # begin file_write_func
+    return write_data
+
+
+# end file_write_func
+
+
+class Surface:
+    "base class for Cairo surfaces. Do not instantiate directly; use create methods provided by subclasses."
+
     # <http://cairographics.org/manual/cairo-cairo-surface-t.html>
 
-    __slots__ = ("_cairobj", "_user_data", "__weakref__") # to forestall typos
+    __slots__ = ("_cairobj", "_user_data", "__weakref__")  # to forestall typos
 
     _instances = WeakValueDictionary()
     _ud_refs = WeakValueDictionary()
 
-    def _check(self) :
+    def _check(self):
         # check for error from last operation on this Surface.
         check(cairo.cairo_surface_status(self._cairobj))
-    #end _check
 
-    def __new__(celf, _cairobj) :
+    # end _check
+
+    def __new__(celf, _cairobj):
         self = celf._instances.get(_cairobj)
-        if self == None :
+        if self is None:
             self = super().__new__(celf)
             self._cairobj = _cairobj
             self._check()
             user_data = celf._ud_refs.get(_cairobj)
-            if user_data == None :
+            if user_data is None:
                 user_data = UserDataDict()
                 celf._ud_refs[_cairobj] = user_data
-            #end if
+            # end if
             self._user_data = user_data
             celf._instances[_cairobj] = self
-        else :
+        else:
             cairo.cairo_surface_destroy(self._cairobj)
-              # lose extra reference created by caller
-        #end if
-        return \
-            self
-    #end __new__
+            # lose extra reference created by caller
+        # end if
+        return self
 
-    def __del__(self) :
-        if self._cairobj != None :
+    # end __new__
+
+    def __del__(self):
+        if self._cairobj is not None:
             cairo.cairo_surface_destroy(self._cairobj)
             self._cairobj = None
-        #end if
-    #end __del__
+        # end if
+
+    # end __del__
 
     @property
-    def type(self) :
+    def type(self):
         "returns the surface type code CAIRO.SURFACE_TYPE_xxx."
-        return \
-            cairo.cairo_surface_get_type(self._cairobj)
-    #end type
+        return cairo.cairo_surface_get_type(self._cairobj)
 
-    def create_similar(self, content, dimensions) :
-        "creates a new Surface with the specified Vector dimensions, which is as" \
-        " compatible as possible with this one. content is a CAIRO.CONTENT_xxx value."
+    # end type
+
+    def create_similar(self, content, dimensions):
+        "creates a new Surface with the specified Vector dimensions, which is as compatible as possible with this one. content is a CAIRO.CONTENT_xxx value."
         dimensions = round(Vector.from_tuple(dimensions))
-        return \
-            type(self)(cairo.cairo_surface_create_similar(self._cairobj, content, dimensions.x, dimensions.y))
-            # fixme: need to choose right Surface subclass based on result surface type
-    #end create_similar
+        return type(self)(
+            cairo.cairo_surface_create_similar(
+                self._cairobj, content, dimensions.x, dimensions.y
+            )
+        )
+        # fixme: need to choose right Surface subclass based on result surface type
 
-    def create_similar_image(self, format, dimensions) :
-        "creates an ImageSurface with the specified CAIRO.FORMAT_xxx format and Vector" \
-        " dimensions that is as compatible as possible with this one."
+    # end create_similar
+
+    def create_similar_image(self, format, dimensions):
+        "creates an ImageSurface with the specified CAIRO.FORMAT_xxx format and Vector dimensions that is as compatible as possible with this one."
         dimensions = round(Vector.from_tuple(dimensions))
-        return \
-            ImageSurface(cairo.cairo_surface_create_similar_image(self._cairobj, format, dimensions.x, dimensions.y))
-    #end create_similar_image
+        return ImageSurface(
+            cairo.cairo_surface_create_similar_image(
+                self._cairobj, format, dimensions.x, dimensions.y
+            )
+        )
 
-    def create_for_rectangle(self, bounds) :
-        "creates a new Surface where drawing is strictly limited to the bounds Rect" \
-        " within this one."
-        return \
-            type(self)(cairo.cairo_surface_create_for_rectangle(self._cairobj, bounds.left, bounds.top, bounds.width, bounds.height))
-            # assumes it returns same type of surface as self!
-    #end create_for_rectangle
+    # end create_similar_image
 
-    def flush(self) :
-        "ensures that Cairo has finished all drawing to this Surface, restoring" \
-        " any temporary modifications made to its state."
+    def create_for_rectangle(self, bounds):
+        "creates a new Surface where drawing is strictly limited to the bounds Rect within this one."
+        return type(self)(
+            cairo.cairo_surface_create_for_rectangle(
+                self._cairobj, bounds.left, bounds.top, bounds.width, bounds.height
+            )
+        )
+        # assumes it returns same type of surface as self!
+
+    # end create_for_rectangle
+
+    def flush(self):
+        "ensures that Cairo has finished all drawing to this Surface, restoring any temporary modifications made to its state."
         cairo.cairo_surface_flush(self._cairobj)
-        return \
-            self
-    #end flush
+        return self
+
+    # end flush
 
     @property
-    def device(self) :
+    def device(self):
         "returns the Device for this Surface."
         result = cairo.cairo_surface_get_device(self._cairobj)
-        if result != None :
+        if result is not None:
             result = Device(cairo.cairo_device_reference(result))
-        #end if
-        return \
-            result
-    #end device
+        # end if
+        return result
+
+    # end device
 
     @property
-    def font_options(self) :
+    def font_options(self):
         "returns a copy of the font_options for this Surface."
         result = FontOptions.create()
         cairo.cairo_surface_get_font_options(self._cairobj, result._cairobj)
-        return \
-            result
-    #end font_options
+        return result
+
+    # end font_options
 
     @property
-    def content(self) :
+    def content(self):
         "returns the content code CAIRO.CONTENT_xxx for this Surface."
-        return \
-            cairo.cairo_surface_get_content(self._cairobj)
-    #end content
+        return cairo.cairo_surface_get_content(self._cairobj)
 
-    def mark_dirty(self) :
+    # end content
+
+    def mark_dirty(self):
         "tells Cairo that you have modified the Surface in some way outside Cairo."
         cairo.cairo_surface_mark_dirty(self._cairobj)
         self._check()
-        return \
-            self
-    #end mark_dirty
+        return self
 
-    def mark_dirty_rectangle(self, rect) :
-        "tells Cairo that you have modified the specified Rect portion of the Surface" \
-        " in some way outside Cairo."
+    # end mark_dirty
+
+    def mark_dirty_rectangle(self, rect):
+        "tells Cairo that you have modified the specified Rect portion of the Surface in some way outside Cairo."
         rect.assert_isint()
-        cairo.cairo_surface_mark_dirty_rectangle(self._cairobj, rect.left, rect.top, rect.width, rect.height)
+        cairo.cairo_surface_mark_dirty_rectangle(
+            self._cairobj, rect.left, rect.top, rect.width, rect.height
+        )
         self._check()
-        return \
-            self
-    #end mark_dirty_rectangle
+        return self
+
+    # end mark_dirty_rectangle
 
     @property
-    def device_offset(self) :
+    def device_offset(self):
         "the current device offset as a Vector."
         x = ct.c_double()
         y = ct.c_double()
         cairo.cairo_surface_get_device_offset(self._cairobj, ct.byref(x), ct.byref(y))
-        return \
-            Vector(x.value, y.value)
-    #end device_offset
+        return Vector(x.value, y.value)
+
+    # end device_offset
 
     @device_offset.setter
-    def device_offset(self, offset) :
+    def device_offset(self, offset):
         self.set_device_offset(offset)
-    #end device_offset
 
-    def set_device_offset(self, offset) :
-        "sets a new device offset Vector. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the device_offset property."
+    # end device_offset
+
+    def set_device_offset(self, offset):
+        "sets a new device offset Vector. Use for method chaining; otherwise, it’s probably more convenient to assign to the device_offset property."
         offset = Vector.from_tuple(offset)
         cairo.cairo_surface_set_device_offset(self._cairobj, offset.x, offset.y)
         self._check()
-        return \
-            self
-    #end device_offset
+        return self
+
+    # end device_offset
 
     @property
-    def device_scale(self) :
+    def device_scale(self):
         "the current device scale as a Vector."
         x = ct.c_double()
         y = ct.c_double()
         cairo.cairo_surface_get_device_scale(self._cairobj, ct.byref(x), ct.byref(y))
-        return \
-            Vector(x.value, y.value)
-    #end device_scale
+        return Vector(x.value, y.value)
+
+    # end device_scale
 
     @device_scale.setter
-    def device_scale(self, scale) :
+    def device_scale(self, scale):
         self.set_device_scale(scale)
-    #end device_scale
 
-    def set_device_scale(self, scale) :
-        "sets a new device scale Vector. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the device_scale property."
+    # end device_scale
+
+    def set_device_scale(self, scale):
+        "sets a new device scale Vector. Use for method chaining; otherwise, it’s probably more convenient to assign to the device_scale property."
         scale = Vector.from_tuple(scale)
         cairo.cairo_surface_set_device_scale(self._cairobj, scale.x, scale.y)
         self._check()
-        return \
-            self
-    #end device_scale
+        return self
+
+    # end device_scale
 
     @property
-    def fallback_resolution(self) :
+    def fallback_resolution(self):
         "the current device fallback_resolution as a Vector."
         x = ct.c_double()
         y = ct.c_double()
-        cairo.cairo_surface_get_fallback_resolution(self._cairobj, ct.byref(x), ct.byref(y))
-        return \
-            Vector(x.value, y.value)
-    #end fallback_resolution
+        cairo.cairo_surface_get_fallback_resolution(
+            self._cairobj, ct.byref(x), ct.byref(y)
+        )
+        return Vector(x.value, y.value)
+
+    # end fallback_resolution
 
     @fallback_resolution.setter
-    def fallback_resolution(self, fallback_resolution) :
+    def fallback_resolution(self, fallback_resolution):
         self.set_fallback_resolution(fallback_resolution)
-    #end fallback_resolution
 
-    def set_fallback_resolution(self, fallback_resolution) :
-        "sets a new device fallback_resolution Vector. Use for method chaining;" \
-        " otherwise, it’s  probably more convenient to assign to the" \
-        " fallback_resolution property."
+    # end fallback_resolution
+
+    def set_fallback_resolution(self, fallback_resolution):
+        "sets a new device fallback_resolution Vector. Use for method chaining; otherwise, it’s  probably more convenient to assign to the fallback_resolution property."
         fallback_resolution = Vector.from_tuple(fallback_resolution)
-        cairo.cairo_surface_set_fallback_resolution(self._cairobj, fallback_resolution.x, fallback_resolution.y)
+        cairo.cairo_surface_set_fallback_resolution(
+            self._cairobj, fallback_resolution.x, fallback_resolution.y
+        )
         self._check()
-        return \
-            self
-    #end fallback_resolution
+        return self
+
+    # end fallback_resolution
 
     @property
-    def user_data(self) :
+    def user_data(self):
         "a dict, initially empty, which may be used by caller for any purpose."
-        return \
-            self._user_data
-    #end user_data
+        return self._user_data
+
+    # end user_data
 
     # Cairo user_data not exposed to caller, probably not useful
 
     @property
-    def has_show_text_glyphs(self) :
-        return \
-            cairo.cairo_surface_has_show_text_glyphs(self._cairobj)
-    #end has_show_text_glyphs
+    def has_show_text_glyphs(self):
+        return cairo.cairo_surface_has_show_text_glyphs(self._cairobj)
+
+    # end has_show_text_glyphs
 
     # TODO: mime_data, map/unmap image
     # <http://cairographics.org/manual/cairo-cairo-surface-t.html>
 
-    def copy_page(self) :
+    def copy_page(self):
         "emits the current page for Surfaces that support multiple pages."
         cairo.cairo_surface_copy_page(self._cairobj)
         self._check()
-        return \
-            self
-    #end copy_page
+        return self
 
-    def show_page(self) :
+    # end copy_page
+
+    def show_page(self):
         "emits and clears the current page for Surfaces that support multiple pages."
         cairo.cairo_surface_show_page(self._cairobj)
         self._check()
-        return \
-            self
-    #end show_page
+        return self
 
-    def write_to_png(self, filename) :
+    # end show_page
+
+    def write_to_png(self, filename):
         check(cairo.cairo_surface_write_to_png(self._cairobj, filename.encode("utf-8")))
-        return \
-            self
-    #end write_to_png
+        return self
 
-    def write_to_png_stream(self, write_func, closure) :
-        "direct low-level interface to cairo_image_surface_write_to_png_stream." \
-        " write_func must match signature of CAIRO.write_func_t, while closure is a" \
-        " ctypes.c_void_p."
+    # end write_to_png
+
+    def write_to_png_stream(self, write_func, closure):
+        "direct low-level interface to cairo_image_surface_write_to_png_stream. write_func must match signature of CAIRO.write_func_t, while closure is a ctypes.c_void_p."
         c_write_func = CAIRO.write_func_t(write_func)
-        check(cairo.cairo_surface_write_to_png_stream(self._cairobj, c_write_func, closure))
-        return \
-            self
-    #end write_to_png_stream
+        check(
+            cairo.cairo_surface_write_to_png_stream(
+                self._cairobj, c_write_func, closure
+            )
+        )
+        return self
 
-    def write_to_png_file(self, outfile) :
-        "converts the contents of the Surface to a sequence of PNG bytes which" \
-        " is written to the specified file-like object. For io.IOBase and subclasses," \
-        " this should be faster than using write_to_png_stream."
+    # end write_to_png_stream
 
-        def write_data(_, data, length) :
+    def write_to_png_file(self, outfile):
+        "converts the contents of the Surface to a sequence of PNG bytes which is written to the specified file-like object. For io.IOBase and subclasses, this should be faster than using write_to_png_stream."
+
+        def write_data(_, data, length):
             s = ct.string_at(data, length)
             outfile.write(s)
-            return \
-                CAIRO.STATUS_SUCCESS
-        #end write_data
+            return CAIRO.STATUS_SUCCESS
 
-    #begin write_to_png_file
+        # end write_data
+
+        # begin write_to_png_file
         self.write_to_png_stream(write_data, None)
-    #end write_to_png_file
 
-    def to_png_bytes(self) :
-        "converts the contents of the Surface to a sequence of PNG bytes which" \
-        " is returned."
+    # end write_to_png_file
+
+    def to_png_bytes(self):
+        "converts the contents of the Surface to a sequence of PNG bytes which is returned."
         buf = io.BytesIO()
         self.write_to_png_file(buf)
-        return \
-            buf.getvalue()
-    #end to_png_bytes
+        return buf.getvalue()
 
-#end Surface
+    # end to_png_bytes
 
-class ImageSurface(Surface) :
-    "A Cairo image surface. Do not instantiate directly; instead," \
-    " call one of the create methods."
 
-    __slots__ = ("_arr",) # to forestall typos
+# end Surface
 
-    max_dimensions = Vector(32767, 32767) # largest image Cairo will let me create
+
+class ImageSurface(Surface):
+    "A Cairo image surface. Do not instantiate directly; instead, call one of the create methods."
+
+    __slots__ = ("_arr",)  # to forestall typos
+
+    max_dimensions = Vector(32767, 32767)  # largest image Cairo will let me create
 
     @classmethod
-    def create(celf, format, dimensions) :
-        "creates a new ImageSurface with dynamically-allocated memory for the pixels." \
-        " dimensions can be a Vector or a (width, height) tuple."
+    def create(celf, format, dimensions):
+        "creates a new ImageSurface with dynamically-allocated memory for the pixels. dimensions can be a Vector or a (width, height) tuple."
         dimensions = Vector.from_tuple(dimensions).assert_isint()
-        return \
-            celf(cairo.cairo_image_surface_create(format, dimensions.x, dimensions.y))
-    #end create
+        return celf(
+            cairo.cairo_image_surface_create(format, dimensions.x, dimensions.y)
+        )
 
-    def create_like(self) :
-        "convenience method which creates an ImageSurface with the same format and" \
-        " dimensions as this one."
-        return \
-            type(self).create(self.format, self.dimensions)
-    #end create_like
+    # end create
+
+    def create_like(self):
+        "convenience method which creates an ImageSurface with the same format and dimensions as this one."
+        return type(self).create(self.format, self.dimensions)
+
+    # end create_like
 
     @classmethod
-    def create_from_png(celf, filename) :
+    def create_from_png(celf, filename):
         "loads an image from a PNG file and creates an ImageSurface for it."
-        return \
-            celf(cairo.cairo_image_surface_create_from_png(filename.encode("utf-8")))
-    #end create_from_png
+        return celf(cairo.cairo_image_surface_create_from_png(filename.encode("utf-8")))
+
+    # end create_from_png
 
     @classmethod
-    def create_from_png_stream(celf, read_func, closure) :
-        "direct low-level interface to cairo_image_surface_create_from_png_stream." \
-        " read_func must match signature CAIRO.read_func_t, while closure is a ctypes.c_void_p."
+    def create_from_png_stream(celf, read_func, closure):
+        "direct low-level interface to cairo_image_surface_create_from_png_stream. read_func must match signature CAIRO.read_func_t, while closure is a ctypes.c_void_p."
         c_read_func = CAIRO.read_func_t(read_func)
-        return \
-            celf(cairo.cairo_image_surface_create_from_png_stream(c_read_func, closure))
-    #end create_from_png_stream
+        return celf(
+            cairo.cairo_image_surface_create_from_png_stream(c_read_func, closure)
+        )
+
+    # end create_from_png_stream
 
     @classmethod
-    def create_from_png_bytes(celf, data) :
-        "creates an ImageSurface from a PNG-format data sequence. This can be" \
-        " of the bytes or bytearray types, or an array.array with \"B\" type code."
+    def create_from_png_bytes(celf, data):
+        'creates an ImageSurface from a PNG-format data sequence. This can be of the bytes or bytearray types, or an array.array with "B" type code.'
 
         offset = 0
         baseadr = None
 
-        def read_data(_, buf, length) :
+        def read_data(_, buf, length):
             nonlocal offset
-            if offset + length <= len(data) :
+            if offset + length <= len(data):
                 ct.memmove(buf, baseadr + offset, length)
                 offset += length
                 status = CAIRO.STATUS_SUCCESS
-            else :
+            else:
                 status = CAIRO.STATUS_READ_ERROR
-            #end if
-            return \
-                status
-        #end read_data
+            # end if
+            return status
 
-    #begin create_from_png_bytes
-        if isinstance(data, bytes) :
+        # end read_data
+
+        # begin create_from_png_bytes
+        if isinstance(data, bytes):
             baseadr = ct.cast(data, ct.c_void_p).value
-        elif isinstance(data, bytearray) :
+        elif isinstance(data, bytearray):
             baseadr = ct.addressof((ct.c_char * len(data)).from_buffer(data))
-        elif isinstance(data, array.array) and data.typecode == "B" :
+        elif isinstance(data, array.array) and data.typecode == "B":
             baseadr = data.buffer_info()[0]
-        else :
+        else:
             raise TypeError("data is not bytes, bytearray or array.array of bytes")
-        #end if
-        return \
-            celf.create_from_png_stream(read_data, None)
-    #end create_from_png_bytes
+        # end if
+        return celf.create_from_png_stream(read_data, None)
+
+    # end create_from_png_bytes
 
     @classmethod
-    def create_for_array(celf, arr, format, dimensions, stride) :
-        "calls cairo_image_surface_create_for_data on arr, which must be" \
-        " a Python array.array object."
+    def create_for_array(celf, arr, format, dimensions, stride):
+        "calls cairo_image_surface_create_for_data on arr, which must be a Python array.array object."
         width, height = Vector.from_tuple(dimensions)
         address, length = arr.buffer_info()
         assert height * stride <= length * arr.itemsize
-        result = celf(cairo.cairo_image_surface_create_for_data(ct.c_void_p(address), format, width, height, stride))
-        result._arr = arr # to ensure it doesn't go away prematurely
-        return \
-            result
-    #end create_for_array
+        result = celf(
+            cairo.cairo_image_surface_create_for_data(
+                ct.c_void_p(address), format, width, height, stride
+            )
+        )
+        result._arr = arr  # to ensure it doesn't go away prematurely
+        return result
+
+    # end create_for_array
 
     @classmethod
-    def create_for_data(celf, data, format, dimensions, stride) :
-        "LOW-LEVEL: calls cairo_image_surface_create_for_data with an arbitrary" \
-        " data address."
+    def create_for_data(celf, data, format, dimensions, stride):
+        "LOW-LEVEL: calls cairo_image_surface_create_for_data with an arbitrary data address."
         width, height = Vector.from_tuple(dimensions)
-        return \
-            celf(cairo.cairo_image_surface_create_for_data(data, format, width, height, stride))
-    #end create_for_data
+        return celf(
+            cairo.cairo_image_surface_create_for_data(
+                data, format, width, height, stride
+            )
+        )
+
+    # end create_for_data
 
     @property
-    def data(self) :
+    def data(self):
         "LOW-LEVEL: the data address."
-        return \
-            cairo.cairo_image_surface_get_data(self._cairobj)
-    #end data
+        return cairo.cairo_image_surface_get_data(self._cairobj)
+
+    # end data
 
     @staticmethod
-    def format_stride_for_width(format, width) :
-        "returns a suitable stride value (number of bytes per row of pixels) for" \
-        " an ImageSurface with the specified format CAIRO.FORMAT_xxx and pixel width."
-        return \
-            cairo.cairo_format_stride_for_width(format, width)
-    #end format_stride_for_width
+    def format_stride_for_width(format, width):
+        "returns a suitable stride value (number of bytes per row of pixels) for an ImageSurface with the specified format CAIRO.FORMAT_xxx and pixel width."
+        return cairo.cairo_format_stride_for_width(format, width)
+
+    # end format_stride_for_width
 
     @property
-    def format(self) :
+    def format(self):
         "the pixel format CAIRO.FORMAT_xxx."
         result = cairo.cairo_image_surface_get_format(self._cairobj)
         self._check()
-        return \
-            result
-    #end format
+        return result
+
+    # end format
 
     @property
-    def width(self) :
+    def width(self):
         "the width in pixels."
         result = cairo.cairo_image_surface_get_width(self._cairobj)
         self._check()
-        return \
-            result
-    #end width
+        return result
+
+    # end width
 
     @property
-    def height(self) :
+    def height(self):
         "the height in pixels."
         result = cairo.cairo_image_surface_get_height(self._cairobj)
         self._check()
-        return \
-            result
-    #end height
+        return result
+
+    # end height
 
     @property
-    def dimensions(self) :
+    def dimensions(self):
         "the dimensions in pixels, as a Vector."
-        return \
-            Vector(self.width, self.height)
-    #end dimensions
+        return Vector(self.width, self.height)
+
+    # end dimensions
 
     @property
-    def stride(self) :
+    def stride(self):
         "the number of bytes per row of pixels."
         result = cairo.cairo_image_surface_get_stride(self._cairobj)
         self._check()
-        return \
-            result
-    #end stride
+        return result
 
-#end ImageSurface
+    # end stride
 
-class PDFSurface(Surface) :
-    "A Cairo surface that outputs its renderings to a PDF file. Do not instantiate" \
-    " directly; use one of the create methods."
 
-    __slots__ = ("_write_func",) # to forestall typos
+# end ImageSurface
+
+
+class PDFSurface(Surface):
+    "A Cairo surface that outputs its renderings to a PDF file. Do not instantiate directly; use one of the create methods."
+
+    __slots__ = ("_write_func",)  # to forestall typos
 
     @classmethod
-    def create(celf, filename, dimensions_in_points) :
-        "creates a PDF surface that outputs to the specified file, with the dimensions" \
-        " of each page given by the Vector dimensions_in_points."
+    def create(celf, filename, dimensions_in_points):
+        "creates a PDF surface that outputs to the specified file, with the dimensions of each page given by the Vector dimensions_in_points."
         dimensions_in_points = Vector.from_tuple(dimensions_in_points)
-        return \
-            celf(cairo.cairo_pdf_surface_create(filename.encode("utf-8"), dimensions_in_points.x, dimensions_in_points.y))
-    #end create
+        return celf(
+            cairo.cairo_pdf_surface_create(
+                filename.encode("utf-8"), dimensions_in_points.x, dimensions_in_points.y
+            )
+        )
+
+    # end create
 
     @classmethod
-    def create_for_stream(celf, write_func, closure, dimensions_in_points) :
-        "direct low-level interface to cairo_pdf_surface_create_for_stream." \
-        " write_func must match signature of CAIRO.write_func_t, while closure is a" \
-        " ctypes.c_void_p."
+    def create_for_stream(celf, write_func, closure, dimensions_in_points):
+        "direct low-level interface to cairo_pdf_surface_create_for_stream. write_func must match signature of CAIRO.write_func_t, while closure is a ctypes.c_void_p."
         dimensions_in_points = Vector.from_tuple(dimensions_in_points)
         c_write_func = CAIRO.write_func_t(write_func)
-        result = celf \
-          (
-            cairo.cairo_pdf_surface_create_for_stream
-              (
-                c_write_func,
-                closure,
-                dimensions_in_points.x,
-                dimensions_in_points.y
-              )
-          )
+        result = celf(
+            cairo.cairo_pdf_surface_create_for_stream(
+                c_write_func, closure, dimensions_in_points.x, dimensions_in_points.y
+            )
+        )
         result._write_func = c_write_func
-          # to ensure it doesn’t disappear unexpectedly
-        return \
-            result
-    #end create_for_stream
+        # to ensure it doesn’t disappear unexpectedly
+        return result
+
+    # end create_for_stream
 
     @classmethod
-    def create_for_file(celf, outfile, dimensions_in_points) :
-        "creates a PDF surface that outputs to the specified file-like object." \
-        " For io.IOBase and subclasses, this should be faster than using create_for_stream."
+    def create_for_file(celf, outfile, dimensions_in_points):
+        "creates a PDF surface that outputs to the specified file-like object. For io.IOBase and subclasses, this should be faster than using create_for_stream."
 
-        def write_data(_, data, length) :
+        def write_data(_, data, length):
             s = ct.string_at(data, length)
             outfile.write(s)
-            return \
-                CAIRO.STATUS_SUCCESS
-        #end write_data
+            return CAIRO.STATUS_SUCCESS
 
-    #begin create_for_file
-        return \
-            celf.create_for_stream(write_data, None, dimensions_in_points)
-    #end create_for_file
+        # end write_data
 
-    def restrict_to_version(self, version) :
-        "restricts the version of PDF file created. If used, should" \
-        " be called before any actual drawing is done."
+        # begin create_for_file
+        return celf.create_for_stream(write_data, None, dimensions_in_points)
+
+    # end create_for_file
+
+    def restrict_to_version(self, version):
+        "restricts the version of PDF file created. If used, should be called before any actual drawing is done."
         cairo.cairo_pdf_surface_restrict_to_version(self._cairobj, version)
         self._check()
-        return \
-            self
-    #end restrict_to_version
+        return self
+
+    # end restrict_to_version
 
     @staticmethod
-    def get_versions() :
+    def get_versions():
         "returns a tuple of supported PDF version number codes CAIRO.PDF_VERSION_xxx."
         versions = ct.POINTER(ct.c_int)()
         num_versions = ct.c_int()
         cairo.cairo_pdf_get_versions(ct.byref(versions), ct.byref(num_versions))
-        return \
-            tuple(versions[i] for i in range(num_versions.value))
-    #end get_versions
+        return tuple(versions[i] for i in range(num_versions.value))
+
+    # end get_versions
 
     @staticmethod
-    def version_to_string(version) :
-        "returns the canonical version string for the specified PDF" \
-        " version code CAIRO.PDF_VERSION_xxx."
+    def version_to_string(version):
+        "returns the canonical version string for the specified PDF version code CAIRO.PDF_VERSION_xxx."
         result = cairo.cairo_pdf_version_to_string(version)
-        if bool(result) :
+        if bool(result):
             result = result.decode("utf-8")
-        else :
+        else:
             result = None
-        #end if
-        return \
-            result
-    #end version_to_string
+        # end if
+        return result
 
-    def set_size(self, dimensions_in_points) :
-        "resizes the page. Must be empty at this point (e.g. immediately" \
-        " after show_page or initial creation)."
+    # end version_to_string
+
+    def set_size(self, dimensions_in_points):
+        "resizes the page. Must be empty at this point (e.g. immediately after show_page or initial creation)."
         dimensions_in_points = Vector.from_tuple(dimensions_in_points)
-        cairo.cairo_pdf_surface_set_size(self._cairobj, dimensions_in_points.x, dimensions_in_points.y)
+        cairo.cairo_pdf_surface_set_size(
+            self._cairobj, dimensions_in_points.x, dimensions_in_points.y
+        )
         self._check()
-        return \
-            self
-    #end set_size
+        return self
 
-#end PDFSurface
+    # end set_size
 
-class PSSurface(Surface) :
-    "a Cairo surface which translates drawing actions into PostScript program sequences." \
-    " Do not instantiate directly; use one of the create methods."
 
-    __slots__ = ("_write_func",) # to forestall typos
+# end PDFSurface
+
+
+class PSSurface(Surface):
+    "a Cairo surface which translates drawing actions into PostScript program sequences. Do not instantiate directly; use one of the create methods."
+
+    __slots__ = ("_write_func",)  # to forestall typos
 
     @classmethod
-    def create(celf, filename, dimensions_in_points) :
-        "creates a PostScript surface that outputs to the specified file, with the dimensions" \
-        " of each page given by the Vector dimensions_in_points."
+    def create(celf, filename, dimensions_in_points):
+        "creates a PostScript surface that outputs to the specified file, with the dimensions of each page given by the Vector dimensions_in_points."
         dimensions_in_points = Vector.from_tuple(dimensions_in_points)
-        return \
-            celf(cairo.cairo_ps_surface_create(filename.encode("utf-8"), dimensions_in_points.x, dimensions_in_points.y))
-    #end create
+        return celf(
+            cairo.cairo_ps_surface_create(
+                filename.encode("utf-8"), dimensions_in_points.x, dimensions_in_points.y
+            )
+        )
+
+    # end create
 
     @classmethod
-    def create_for_stream(celf, write_func, closure, dimensions_in_points) :
-        "direct low-level interface to cairo_ps_surface_create_for_stream." \
-        " write_func must match signature of CAIRO.write_func_t, while closure is a" \
-        " ctypes.c_void_p."
+    def create_for_stream(celf, write_func, closure, dimensions_in_points):
+        "direct low-level interface to cairo_ps_surface_create_for_stream. write_func must match signature of CAIRO.write_func_t, while closure is a ctypes.c_void_p."
         dimensions_in_points = Vector.from_tuple(dimensions_in_points)
         c_write_func = CAIRO.write_func_t(write_func)
-        result = celf \
-          (
-            cairo.cairo_ps_surface_create_for_stream
-              (
-                c_write_func,
-                closure,
-                dimensions_in_points.x,
-                dimensions_in_points.y
-              )
-          )
+        result = celf(
+            cairo.cairo_ps_surface_create_for_stream(
+                c_write_func, closure, dimensions_in_points.x, dimensions_in_points.y
+            )
+        )
         result._write_func = c_write_func
-          # to ensure it doesn’t disappear unexpectedly
-        return \
-            result
-    #end create_for_stream
+        # to ensure it doesn’t disappear unexpectedly
+        return result
+
+    # end create_for_stream
 
     @classmethod
-    def create_for_file(celf, outfile, dimensions_in_points) :
-        "creates a PostScript surface that outputs to the specified file-like object." \
-        " For io.IOBase and subclasses, this should be faster than using create_for_stream."
+    def create_for_file(celf, outfile, dimensions_in_points):
+        "creates a PostScript surface that outputs to the specified file-like object. For io.IOBase and subclasses, this should be faster than using create_for_stream."
 
-        def write_data(_, data, length) :
+        def write_data(_, data, length):
             s = ct.string_at(data, length)
             outfile.write(s)
-            return \
-                CAIRO.STATUS_SUCCESS
-        #end write_data
+            return CAIRO.STATUS_SUCCESS
 
-    #begin create_for_file
-        return \
-            celf.create_for_stream(write_data, None, dimensions_in_points)
-    #end create_for_file
+        # end write_data
 
-    def restrict_to_level(self, level) :
-        "restricts the language level of PostScript created, one of the CAIRO.PS_LEVEL_xxx" \
-        " codes. If used, should be called before any actual drawing is done."
+        # begin create_for_file
+        return celf.create_for_stream(write_data, None, dimensions_in_points)
+
+    # end create_for_file
+
+    def restrict_to_level(self, level):
+        "restricts the language level of PostScript created, one of the CAIRO.PS_LEVEL_xxx codes. If used, should be called before any actual drawing is done."
         cairo.cairo_ps_surface_restrict_to_level(self._cairobj, level)
         self._check()
-        return \
-            self
-    #end restrict_to_level
+        return self
+
+    # end restrict_to_level
 
     @staticmethod
-    def get_levels() :
+    def get_levels():
         "returns a tuple of supported PostScript language level codes CAIRO.PS_LEVEL_xxx."
         levels = ct.POINTER(ct.c_int)()
         num_levels = ct.c_int()
         cairo.cairo_ps_get_levels(ct.byref(levels), ct.byref(num_levels))
-        return \
-            tuple(levels[i] for i in range(num_levels.value))
-    #end get_levels
+        return tuple(levels[i] for i in range(num_levels.value))
+
+    # end get_levels
 
     @staticmethod
-    def level_to_string(level) :
-        "returns the canonical string for the specified PostScript" \
-        " language level code CAIRO.PS_LEVEL_xxx."
+    def level_to_string(level):
+        "returns the canonical string for the specified PostScript language level code CAIRO.PS_LEVEL_xxx."
         result = cairo.cairo_ps_level_to_string(level)
-        if bool(result) :
+        if bool(result):
             result = result.decode("utf-8")
-        else :
+        else:
             result = None
-        #end if
-        return \
-            result
-    #end level_to_string
+        # end if
+        return result
+
+    # end level_to_string
 
     @property
-    def eps(self) :
+    def eps(self):
         "whether the Surface outputs Encapsulated PostScript."
         result = cairo.cairo_ps_surface_get_eps(self._cairobj)
         self._check()
-        return \
-            result
-    #end eps
+        return result
+
+    # end eps
 
     @eps.setter
-    def eps(self, eps) :
+    def eps(self, eps):
         self.set_eps(eps)
-    #end eps
 
-    def set_eps(self, eps) :
+    # end eps
+
+    def set_eps(self, eps):
         "specifies whether the Surface outputs Encapsulated PostScript."
         cairo.cairo_ps_surface_set_eps(self._cairobj, eps)
         self._check()
-        return \
-            self
-    #end set_eps
+        return self
 
-    def set_size(self, dimensions_in_points) :
-        "resizes the page. Must be empty at this point (e.g. immediately" \
-        " after show_page or initial creation)."
+    # end set_eps
+
+    def set_size(self, dimensions_in_points):
+        "resizes the page. Must be empty at this point (e.g. immediately after show_page or initial creation)."
         dimensions_in_points = Vector.from_tuple(dimensions_in_points)
-        cairo.cairo_ps_surface_set_size(self._cairobj, dimensions_in_points.x, dimensions_in_points.y)
+        cairo.cairo_ps_surface_set_size(
+            self._cairobj, dimensions_in_points.x, dimensions_in_points.y
+        )
         self._check()
-        return \
-            self
-    #end set_size
+        return self
 
-    def dsc_begin_setup(self) :
+    # end set_size
+
+    def dsc_begin_setup(self):
         "indicates that subsequent calls to dsc_comment should go to the Setup section."
         cairo.cairo_ps_surface_dsc_begin_setup(self._cairobj)
         self._check()
-        return \
-            self
-    #end dsc_begin_setup
+        return self
 
-    def dsc_begin_page_setup(self) :
+    # end dsc_begin_setup
+
+    def dsc_begin_page_setup(self):
         "indicates that subsequent calls to dsc_comment should go to the PageSetup section."
         cairo.cairo_ps_surface_dsc_begin_page_setup(self._cairobj)
         self._check()
-        return \
-            self
-    #end dsc_begin_page_setup
+        return self
 
-    def dsc_comment(self, comment) :
+    # end dsc_begin_page_setup
+
+    def dsc_comment(self, comment):
         "emits a DSC comment."
         cairo.cairo_ps_surface_dsc_comment(self._cairobj, comment.encode("utf-8"))
         self._check()
-        return \
-            self
-    #end dsc_comment
+        return self
 
-#end PSSurface
+    # end dsc_comment
 
-class RecordingSurface(Surface) :
-    "a Surface that records the sequence of drawing calls made into it" \
-    " and plays them back when used as a source Pattern. Do not instantiate" \
-    " directly; use the create method."
 
-    __slots__ = () # to forestall typos
+# end PSSurface
+
+
+class RecordingSurface(Surface):
+    "a Surface that records the sequence of drawing calls made into it and plays them back when used as a source Pattern. Do not instantiate directly; use the create method."
+
+    __slots__ = ()  # to forestall typos
 
     @classmethod
-    def create(celf, content, extents = None) :
-        "content is a CAIRO.CONTENT_xxx value, and extents is an optional" \
-        " Rect defining the drawing extents. If omitted, the extents are unbounded."
-        if extents != None :
+    def create(celf, content, extents=None):
+        "content is a CAIRO.CONTENT_xxx value, and extents is an optional Rect defining the drawing extents. If omitted, the extents are unbounded."
+        if extents is not None:
             extents = extents.to_cairo()
             extentsarg = ct.byref(extents)
-        else :
+        else:
             extentsarg = None
-        #end if
-        return \
-            celf(cairo.cairo_recording_surface_create(content, extentsarg))
-    #end create
+        # end if
+        return celf(cairo.cairo_recording_surface_create(content, extentsarg))
+
+    # end create
 
     @property
-    def ink_extents(self) :
+    def ink_extents(self):
         "the extents of the operations recorded, as a Rect."
         x0 = ct.c_double()
         y0 = ct.c_double()
         width = ct.c_double()
         height = ct.c_double()
-        cairo.cairo_recording_surface_ink_extents(self._cairobj, ct.byref(x0), ct.byref(y0), ct.byref(width), ct.byref(height))
-        return \
-            Rect(x0.value, y0.value, width.value, height.value)
-    #end ink_extents
+        cairo.cairo_recording_surface_ink_extents(
+            self._cairobj, ct.byref(x0), ct.byref(y0), ct.byref(width), ct.byref(height)
+        )
+        return Rect(x0.value, y0.value, width.value, height.value)
+
+    # end ink_extents
 
     @property
-    def extents(self) :
+    def extents(self):
         "the original extents the surface was created with as a Rect, or None if unbounded."
         result = CAIRO.rectangle_t()
-        if cairo.cairo_recording_surface_get_extents(self._cairobj, ct.byref(result)) :
+        if cairo.cairo_recording_surface_get_extents(self._cairobj, ct.byref(result)):
             result = Rect.from_cairo(result)
-        else :
+        else:
             result = None
-        #end if
-        return \
-            result
-    #end extents
+        # end if
+        return result
 
-#end RecordingSurface
+    # end extents
 
-class SVGSurface(Surface) :
-    "Surface that writes its contents to an SVG file. Do not instantiate directly;" \
-    " use one of the create methods."
 
-    __slots__ = ("_write_func",) # to forestall typos
+# end RecordingSurface
+
+
+class SVGSurface(Surface):
+    "Surface that writes its contents to an SVG file. Do not instantiate directly; use one of the create methods."
+
+    __slots__ = ("_write_func",)  # to forestall typos
 
     @classmethod
-    def create(celf, filename, dimensions_in_points) :
-        "creates an SVG surface that outputs to the specified file, with the dimensions" \
-        " of each page given by the Vector dimensions_in_points."
+    def create(celf, filename, dimensions_in_points):
+        "creates an SVG surface that outputs to the specified file, with the dimensions of each page given by the Vector dimensions_in_points."
         dimensions_in_points = Vector.from_tuple(dimensions_in_points)
-        return \
-            celf(cairo.cairo_svg_surface_create(filename.encode("utf-8"), dimensions_in_points.x, dimensions_in_points.y))
-    #end create
+        return celf(
+            cairo.cairo_svg_surface_create(
+                filename.encode("utf-8"), dimensions_in_points.x, dimensions_in_points.y
+            )
+        )
+
+    # end create
 
     @classmethod
-    def create_for_stream(celf, write_func, closure, dimensions_in_points) :
-        "direct low-level interface to cairo_svg_surface_create_for_stream." \
-        " write_func must match signature of CAIRO.write_func_t, while closure is a" \
-        " ctypes.c_void_p."
+    def create_for_stream(celf, write_func, closure, dimensions_in_points):
+        "direct low-level interface to cairo_svg_surface_create_for_stream. write_func must match signature of CAIRO.write_func_t, while closure is a ctypes.c_void_p."
         dimensions_in_points = Vector.from_tuple(dimensions_in_points)
         c_write_func = CAIRO.write_func_t(write_func)
-        result = celf \
-          (
-            cairo.cairo_svg_surface_create_for_stream
-              (
-                c_write_func,
-                closure,
-                dimensions_in_points.x,
-                dimensions_in_points.y
-              )
-          )
+        result = celf(
+            cairo.cairo_svg_surface_create_for_stream(
+                c_write_func, closure, dimensions_in_points.x, dimensions_in_points.y
+            )
+        )
         result._write_func = c_write_func
-          # to ensure it doesn’t disappear unexpectedly
-        return \
-            result
-    #end create_for_stream
+        # to ensure it doesn’t disappear unexpectedly
+        return result
+
+    # end create_for_stream
 
     @classmethod
-    def create_for_file(celf, outfile, dimensions_in_points) :
-        "creates an SVG surface that outputs to the specified file-like object." \
-        " For io.IOBase and subclasses, this should be faster than using create_for_stream."
+    def create_for_file(celf, outfile, dimensions_in_points):
+        "creates an SVG surface that outputs to the specified file-like object. For io.IOBase and subclasses, this should be faster than using create_for_stream."
 
-        def write_data(_, data, length) :
+        def write_data(_, data, length):
             s = ct.string_at(data, length)
             outfile.write(s)
-            return \
-                CAIRO.STATUS_SUCCESS
-        #end write_data
+            return CAIRO.STATUS_SUCCESS
 
-    #begin create_for_file
-        return \
-            celf.create_for_stream(write_data, None, dimensions_in_points)
-    #end create_for_file
+        # end write_data
 
-    def restrict_to_version(self, version) :
-        "restricts the version of SVG file created. If used, must" \
-        " be called before any actual drawing is done."
+        # begin create_for_file
+        return celf.create_for_stream(write_data, None, dimensions_in_points)
+
+    # end create_for_file
+
+    def restrict_to_version(self, version):
+        "restricts the version of SVG file created. If used, must be called before any actual drawing is done."
         cairo.cairo_svg_surface_restrict_to_version(self._cairobj, version)
         self._check()
-        return \
-            self
-    #end restrict_to_version
+        return self
+
+    # end restrict_to_version
 
     @staticmethod
-    def get_versions() :
+    def get_versions():
         "returns a tuple of supported SVG version number codes CAIRO.SVG_VERSION_xxx."
         versions = ct.POINTER(ct.c_int)()
         num_versions = ct.c_int()
         cairo.cairo_svg_get_versions(ct.byref(versions), ct.byref(num_versions))
-        return \
-            tuple(versions[i] for i in range(num_versions.value))
-    #end get_versions
+        return tuple(versions[i] for i in range(num_versions.value))
+
+    # end get_versions
 
     @staticmethod
-    def version_to_string(version) :
-        "returns the canonical version string for the specified SVG" \
-        " version code CAIRO.SVG_VERSION_xxx."
+    def version_to_string(version):
+        "returns the canonical version string for the specified SVG version code CAIRO.SVG_VERSION_xxx."
         result = cairo.cairo_svg_version_to_string(version)
-        if bool(result) :
+        if bool(result):
             result = result.decode("utf-8")
-        else :
+        else:
             result = None
-        #end if
-        return \
-            result
-    #end version_to_string
+        # end if
+        return result
 
-#end SVGSurface
+    # end version_to_string
 
-class Device :
-    "a Cairo device_t object. Do not instantiate directly; get from Surface.device" \
-    " or ScriptDevice.create."
+
+# end SVGSurface
+
+
+class Device:
+    "a Cairo device_t object. Do not instantiate directly; get from Surface.device or ScriptDevice.create."
+
     # <http://cairographics.org/manual/cairo-cairo-device-t.html>
 
-    __slots__ = ("_cairobj", "_user_data", "__weakref__") # to forestall typos
+    __slots__ = ("_cairobj", "_user_data", "__weakref__")  # to forestall typos
 
     _instances = WeakValueDictionary()
     _ud_refs = WeakValueDictionary()
 
-    def _check(self) :
+    def _check(self):
         # check for error from last operation on this Surface.
         check(cairo.cairo_device_status(self._cairobj))
-    #end _check
 
-    def __new__(celf, _cairobj) :
+    # end _check
+
+    def __new__(celf, _cairobj):
         self = celf._instances.get(_cairobj)
-        if self == None :
+        if self is None:
             self = super().__new__(celf)
             self._cairobj = _cairobj
             self._check()
             user_data = celf._ud_refs.get(_cairobj)
-            if user_data == None :
+            if user_data is None:
                 user_data = UserDataDict()
                 celf._ud_refs[_cairobj] = user_data
-            #end if
+            # end if
             self._user_data = user_data
             celf._instances[_cairobj] = self
-        else :
+        else:
             cairo.cairo_device_destroy(self._cairobj)
-              # lose extra reference created by caller
-        #end if
-        return \
-            self
-    #end __new__
+            # lose extra reference created by caller
+        # end if
+        return self
 
-    def __del__(self) :
-        if self._cairobj != None :
+    # end __new__
+
+    def __del__(self):
+        if self._cairobj is not None:
             cairo.cairo_device_destroy(self._cairobj)
             self._cairobj = None
-        #end if
-    #end __del__
+        # end if
+
+    # end __del__
 
     @property
-    def type(self) :
+    def type(self):
         "the type of the Device, a CAIRO.DEVICE_TYPE_xxx code."
-        return \
-            cairo.cairo_device_get_type(self._cairobj)
-    #end type
+        return cairo.cairo_device_get_type(self._cairobj)
+
+    # end type
 
     # TODO: acquire, release, observer stuff
 
     @property
-    def user_data(self) :
+    def user_data(self):
         "a dict, initially empty, which may be used by caller for any purpose."
-        return \
-            self._user_data
-    #end user_data
+        return self._user_data
+
+    # end user_data
 
     # Cairo user_data not exposed to caller, probably not useful
 
-    if HAS.XCB_SURFACE :
+    if HAS.XCB_SURFACE:
         # debug interface
 
-        if HAS.XCB_SHM_FUNCTIONS :
+        if HAS.XCB_SHM_FUNCTIONS:
 
-            def xcb_debug_cap_xshm_version(self, major_version, minor_version) :
-                cairo.cairo_xcb_device_debug_cap_xshm_version \
-                  (
-                    self._cairobj,
-                    major_version,
-                    minor_version
-                  )
+            def xcb_debug_cap_xshm_version(self, major_version, minor_version):
+                cairo.cairo_xcb_device_debug_cap_xshm_version(
+                    self._cairobj, major_version, minor_version
+                )
                 self._check()
-            #end xcb_debug_cap_xshm_version
 
-        #end if
+            # end xcb_debug_cap_xshm_version
 
-        def xcb_debug_cap_xrender_version(self, major_version, minor_version) :
-            cairo.cairo_xcb_device_debug_cap_xrender_version \
-              (
-                self._cairobj,
-                major_version,
-                minor_version
-              )
+        # end if
+
+        def xcb_debug_cap_xrender_version(self, major_version, minor_version):
+            cairo.cairo_xcb_device_debug_cap_xrender_version(
+                self._cairobj, major_version, minor_version
+            )
             self._check()
-        #end xcb_debug_cap_xrender_version
+
+        # end xcb_debug_cap_xrender_version
 
         @property
-        def xcb_debug_precision(self) :
-            "-1 to choose value based on antialiasing mode, else set corresponding" \
-            " PolyMode."
+        def xcb_debug_precision(self):
+            "-1 to choose value based on antialiasing mode, else set corresponding PolyMode."
             result = cairo.cairo_xcb_device_debug_get_precision(self._cairobj)
             self._check()
-            return \
-                result
-        #end xcb_debug_precision
+            return result
+
+        # end xcb_debug_precision
 
         @xcb_debug_precision.setter
-        def xcb_debug_precision(self, precision) :
+        def xcb_debug_precision(self, precision):
             cairo.cairo_xcb_device_debug_set_precision(self._cairobj, precision)
             self._check()
-        #end xcb_debug_precision
+
+        # end xcb_debug_precision
 
         @property
-        def xcb_connection(self) :
+        def xcb_connection(self):
             "note this returns a raw ctypes.c_void_p value."
             result = cairo.cairo_xcb_device_get_connection(self._cairobj)
             self._check()
-            return \
-                result
-        #end xcb_connection
+            return result
 
-    #end if
+        # end xcb_connection
 
-#end Device
+    # end if
 
-class ScriptDevice(Device) :
+
+# end Device
+
+
+class ScriptDevice(Device):
     "for rendering to replayable Cairo scripts."
+
     # <http://cairographics.org/manual/cairo-Script-Surfaces.html>
 
-    __slots__ = ("_write_func",) # to forestall typos
+    __slots__ = ("_write_func",)  # to forestall typos
 
     @classmethod
-    def create(celf, filename) :
+    def create(celf, filename):
         "creates a ScriptDevice that outputs to the specified file."
-        return \
-            celf(cairo.cairo_script_create(filename.encode("utf-8")))
-    #end create
+        return celf(cairo.cairo_script_create(filename.encode("utf-8")))
+
+    # end create
 
     @classmethod
-    def create_for_stream(celf, write_func, closure) :
-        "direct low-level interface to cairo_script_create_for_stream." \
-        " write_func must match signature of CAIRO.write_func_t, while closure is a" \
-        " ctypes.c_void_p."
+    def create_for_stream(celf, write_func, closure):
+        "direct low-level interface to cairo_script_create_for_stream. write_func must match signature of CAIRO.write_func_t, while closure is a ctypes.c_void_p."
         c_write_func = CAIRO.write_func_t(write_func)
         result = celf(cairo.cairo_script_create_for_stream(c_write_func, closure))
         result._write_func = c_write_func
-          # to ensure it doesn’t disappear unexpectedly
-        return \
-            result
-    #end create_for_stream
+        # to ensure it doesn’t disappear unexpectedly
+        return result
+
+    # end create_for_stream
 
     @classmethod
-    def create_for_file(celf, outfile) :
-        "creates a recording surface that outputs to the specified file-like object." \
-        " For io.IOBase and subclasses, this should be faster than using create_for_stream."
+    def create_for_file(celf, outfile):
+        "creates a recording surface that outputs to the specified file-like object. For io.IOBase and subclasses, this should be faster than using create_for_stream."
 
-        def write_data(_, data, length) :
+        def write_data(_, data, length):
             s = ct.string_at(data, length)
             outfile.write(s)
-            return \
-                CAIRO.STATUS_SUCCESS
-        #end write_data
+            return CAIRO.STATUS_SUCCESS
 
-    #begin create_for_file
-        return \
-            celf.create_for_stream(write_data, None)
-    #end create_for_file
+        # end write_data
 
-    def from_recording_surface(self, recording_surface) :
-        "converts the recorded operations in recording_surface (a RecordingSurface)" \
-        " into a script."
-        if not isinstance(recording_surface, RecordingSurface) :
+        # begin create_for_file
+        return celf.create_for_stream(write_data, None)
+
+    # end create_for_file
+
+    def from_recording_surface(self, recording_surface):
+        "converts the recorded operations in recording_surface (a RecordingSurface) into a script."
+        if not isinstance(recording_surface, RecordingSurface):
             raise TypeError("recording_surface must be a RecordingSurface")
-        #end if
-        check(cairo.cairo_script_from_recording_surface(self._cairobj, recording_surface._cairobj))
-    #end create_from_recording_surface
+        # end if
+        check(
+            cairo.cairo_script_from_recording_surface(
+                self._cairobj, recording_surface._cairobj
+            )
+        )
+
+    # end create_from_recording_surface
 
     @property
-    def mode(self) :
+    def mode(self):
         "the current mode CAIRO.SCRIPT_MODE_xxx value."
-        return \
-            cairo.cairo_script_get_mode(self._cairobj)
-    #end mode
+        return cairo.cairo_script_get_mode(self._cairobj)
+
+    # end mode
 
     @mode.setter
-    def mode(self, mode) :
+    def mode(self, mode):
         cairo.cairo_script_set_mode(self._cairobj, mode)
         self._check()
-    #end mode
 
-    def surface_create(self, content, dimensions) :
-        "creates a new Surface that will emit its rendering through this" \
-        " ScriptDevice. content is a CAIRO.CONTENT_xxx value."
+    # end mode
+
+    def surface_create(self, content, dimensions):
+        "creates a new Surface that will emit its rendering through this ScriptDevice. content is a CAIRO.CONTENT_xxx value."
         dimensions = Vector.from_tuple(dimensions)
-        return \
-            Surface(cairo.cairo_script_surface_create(self._cairobj, content, dimensions.x, dimensions.y))
-    #end surface_create
+        return Surface(
+            cairo.cairo_script_surface_create(
+                self._cairobj, content, dimensions.x, dimensions.y
+            )
+        )
 
-    def surface_create_for_target(self, target) :
-        "creates a proxy Surface that will render to Surface target and record its" \
-        " operations through this ScriptDevice."
-        if not isinstance(target, Surface) :
+    # end surface_create
+
+    def surface_create_for_target(self, target):
+        "creates a proxy Surface that will render to Surface target and record its operations through this ScriptDevice."
+        if not isinstance(target, Surface):
             raise TypeError("target must be a Surface")
-        #end if
-        return \
-            Surface(cairo.cairo_script_surface_create_for_target(self._cairobj, target._cairobj))
-    #end surface_create_for_target
+        # end if
+        return Surface(
+            cairo.cairo_script_surface_create_for_target(self._cairobj, target._cairobj)
+        )
 
-    def write_comment(self, comment) :
+    # end surface_create_for_target
+
+    def write_comment(self, comment):
         "writes a comment to the script. comment can be a string or bytes."
-        if isinstance(comment, str) :
+        if isinstance(comment, str):
             comment = comment.encode("utf-8")
-        elif not isinstance(comment, bytes) :
+        elif not isinstance(comment, bytes):
             raise TypeError("comment must be str or bytes")
-        #end if
+        # end if
         c_comment = (ct.c_ubyte * len(comment))()
-        for i in range(len(comment)) :
+        for i in range(len(comment)):
             c_comment[i] = comment[i]
-        #end for
-        cairo.cairo_script_write_comment(self._cairobj, ct.byref(c_comment), len(comment))
-    #end write_comment
+        # end for
+        cairo.cairo_script_write_comment(
+            self._cairobj, ct.byref(c_comment), len(comment)
+        )
 
-#end ScriptDevice
+    # end write_comment
 
-class Colour :
-    "a representation of a colour plus alpha, convertible to/from the various colour" \
-    " spaces available in the Python colorsys module. Internal representation is" \
-    " always (r, g, b, a)."
 
-    __slots__ = ("r", "g", "b", "a") # to forestall typos
+# end ScriptDevice
+
+
+class Colour:
+    "a representation of a colour plus alpha, convertible to/from the various colour spaces available in the Python colorsys module. Internal representation is always (r, g, b, a)."
+
+    __slots__ = ("r", "g", "b", "a")  # to forestall typos
 
     # to allow referencing colour components by name:
     RGBA = namedtuple("RGBA", ("r", "g", "b", "a"))
@@ -4489,247 +4798,233 @@ class Colour :
     HLSA = namedtuple("HLSA", ("h", "l", "s", "a"))
     YIQA = namedtuple("YIQA", ("y", "i", "q", "a"))
 
-    def __init__(self, r, g, b, a) :
+    def __init__(self, r, g, b, a):
         self.r = r
         self.g = g
         self.b = b
         self.a = a
-    #end __init__
 
-    def __getitem__(self, i) :
+    # end __init__
+
+    def __getitem__(self, i):
         "being able to access elements by index allows a Colour to be cast to a tuple or list."
-        return \
-            (self.r, self.g, self.b, self.a)[i]
-    #end __getitem__
+        return (self.r, self.g, self.b, self.a)[i]
 
-    def __repr__(self) :
-        return \
-            "%s%s" % (type(self).__name__, repr(tuple(self)))
-    #end __repr__
+    # end __getitem__
 
-    if HAS.ISCLOSE :
+    def __repr__(self):
+        return f"{type(self).__name__}{repr(tuple(self))}"
 
-        def iscloseto(c1, c2, rel_tol = default_rel_tol, abs_tol = default_abs_tol) :
+    # end __repr__
+
+    if HAS.ISCLOSE:
+
+        def iscloseto(c1, c2, rel_tol=default_rel_tol, abs_tol=default_abs_tol):
             "approximate equality of two Colours to within the specified tolerances."
-            return \
-                (
-                    math.isclose(c1.r, c2.r, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(c1.g, c2.g, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(c1.b, c2.b, rel_tol = rel_tol, abs_tol = abs_tol)
-                and
-                    math.isclose(c1.a, c2.a, rel_tol = rel_tol, abs_tol = abs_tol)
-                )
-        #end iscloseto
+            return (
+                math.isclose(c1.r, c2.r, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(c1.g, c2.g, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(c1.b, c2.b, rel_tol=rel_tol, abs_tol=abs_tol)
+                and math.isclose(c1.a, c2.a, rel_tol=rel_tol, abs_tol=abs_tol)
+            )
 
-    #end if
+        # end iscloseto
+
+    # end if
 
     @classmethod
-    def _alpha_tuple(celf, c, norm_hue = False) :
+    def _alpha_tuple(celf, c, norm_hue=False):
         # ensures that c is a tuple of 4 elements, appending a default alpha if omitted
         c = tuple(c)
-        if len(c) == 3 :
-            c = c + (1,) # default to full-opaque alpha
-        elif len(c) != 4 :
+        if len(c) == 3:
+            c = c + (1,)  # default to full-opaque alpha
+        elif len(c) != 4:
             raise TypeError("colour tuple must have 3 or 4 elements")
-        #end if
-        if norm_hue :
+        # end if
+        if norm_hue:
             # first component is hue, normalize to [0, 1) range
             c = (c[0] % 1,) + c[1:]
-        #end if
-        return \
-            c
-    #end _alpha_tuple
+        # end if
+        return c
+
+    # end _alpha_tuple
 
     @classmethod
-    def _convert_space(celf, c, conv, tupleclass = None, norm_hue = False) :
+    def _convert_space(celf, c, conv, tupleclass=None, norm_hue=False):
         # puts the non-alpha components of c through the conversion function conv
         # and returns the result with the alpha restored.
         c = celf._alpha_tuple(c, norm_hue)
         result = conv(*c[:3]) + (c[3],)
-        if tupleclass != None :
+        if tupleclass is not None:
             result = tupleclass(*result)
-        #end if
-        return \
-            result
-    #end _convert_space
+        # end if
+        return result
+
+    # end _convert_space
 
     @classmethod
-    def from_rgba(celf, c) :
+    def from_rgba(celf, c):
         "constructs a Colour from an (r, g, b) or (r, g, b, a) tuple."
-        return \
-            celf(*celf._alpha_tuple(c))
-    #end from_rgba
+        return celf(*celf._alpha_tuple(c))
+
+    # end from_rgba
 
     @classmethod
-    def from_hsva(celf, c) :
+    def from_hsva(celf, c):
         "constructs a Colour from an (h, s, v) or (h, s, v, a) tuple."
-        return \
-            celf(*celf._convert_space(c, colorsys.hsv_to_rgb, norm_hue = True))
-    #end from_hsva
+        return celf(*celf._convert_space(c, colorsys.hsv_to_rgb, norm_hue=True))
+
+    # end from_hsva
 
     @classmethod
-    def from_hlsa(celf, c) :
+    def from_hlsa(celf, c):
         "constructs a Colour from an (h, l, s) or (h, l, s, a) tuple."
-        return \
-            celf(*celf._convert_space(c, colorsys.hls_to_rgb, norm_hue = True))
-    #end from_hlsa
+        return celf(*celf._convert_space(c, colorsys.hls_to_rgb, norm_hue=True))
+
+    # end from_hlsa
 
     @classmethod
-    def from_yiqa(celf, c) :
+    def from_yiqa(celf, c):
         "constructs a Colour from a (y, i, q) or (y, i, q, a) tuple."
-        return \
-            celf(*celf._convert_space(c, colorsys.yiq_to_rgb))
-    #end from_yiqa
+        return celf(*celf._convert_space(c, colorsys.yiq_to_rgb))
+
+    # end from_yiqa
 
     @classmethod
-    def grey(celf, i, a = 1) :
-        "constructs a monochrome Colour with r, g and b components set to i" \
-        " and alpha set to a."
-        return \
-            celf(i, i, i, a)
-    #end grey
+    def grey(celf, i, a=1):
+        "constructs a monochrome Colour with r, g and b components set to i and alpha set to a."
+        return celf(i, i, i, a)
 
-    def to_rgba(self) :
+    # end grey
+
+    def to_rgba(self):
         "returns an (r, g, b, a) namedtuple."
-        return \
-            self.RGBA(*tuple(self))
-    #end to_rgba
+        return self.RGBA(*tuple(self))
 
-    def to_hsva(self) :
+    # end to_rgba
+
+    def to_hsva(self):
         "returns an (h, s, v, a) namedtuple."
-        return \
-            type(self)._convert_space(self, colorsys.rgb_to_hsv, self.HSVA)
-    #end to_hsva
+        return type(self)._convert_space(self, colorsys.rgb_to_hsv, self.HSVA)
 
-    def to_hlsa(self) :
+    # end to_hsva
+
+    def to_hlsa(self):
         "returns an (h, l, s, a) namedtuple."
-        return \
-            type(self)._convert_space(self, colorsys.rgb_to_hls, self.HLSA)
-    #end to_hlsa
+        return type(self)._convert_space(self, colorsys.rgb_to_hls, self.HLSA)
 
-    def to_yiqa(self) :
+    # end to_hlsa
+
+    def to_yiqa(self):
         "returns a (y, i, q, a) namedtuple."
-        return \
-            type(self)._convert_space(self, colorsys.rgb_to_yiq, self.YIQA)
-    #end to_yiqa
+        return type(self)._convert_space(self, colorsys.rgb_to_yiq, self.YIQA)
+
+    # end to_yiqa
 
     @staticmethod
-    def _replace_components(construct, old_components, new_components) :
+    def _replace_components(construct, old_components, new_components):
         # replaces components in 4-tuple old_components with corresponding values
         # from new_components where latter are not None, and passes resulting
         # tuple to construct, returning the result.
-        return \
-            construct \
-              (
-                (
-                    lambda : c1[j],
-                    lambda : c2[j],
-                    lambda : c2[j](c1[j]),
-                )[isinstance(c2[j], FunctionType) + (c2[j] != None)]()
-                for c1 in (old_components,)
-                for c2 in (new_components,)
-                for j in range(4)
-              )
-    #end _replace_components
+        return construct(
+            (
+                lambda: c1[j],
+                lambda: c2[j],
+                lambda: c2[j](c1[j]),
+            )[isinstance(c2[j], FunctionType) + (c2[j] is not None)]()
+            for c1 in (old_components,)
+            for c2 in (new_components,)
+            for j in range(4)
+        )
 
-    def replace_rgba(self, r = None, g = None, b = None, a = None) :
-        "returns a new Colour with the specified (r, g, b, a) components replaced with new" \
-        " values. Each arg can be a real number, or a function of a single real argument" \
-        " that, given the old component value, returns the new component value."
-        return \
-            type(self)._replace_components(type(self).from_rgba, self.to_rgba(), (r, g, b, a))
-    #end replace_rgba
+    # end _replace_components
 
-    def replace_hsva(self, h = None, s = None, v = None, a = None) :
-        "returns a new Colour with the specified (h, s, v, a) components replaced with new" \
-        " values. Each arg can be a real number, or a function of a single real argument" \
-        " that, given the old component value, returns the new component value."
-        return \
-            type(self)._replace_components(type(self).from_hsva, self.to_hsva(), (h, s, v, a))
-    #end replace_hsva
+    def replace_rgba(self, r=None, g=None, b=None, a=None):
+        "returns a new Colour with the specified (r, g, b, a) components replaced with new values. Each arg can be a real number, or a function of a single real argument that, given the old component value, returns the new component value."
+        return type(self)._replace_components(
+            type(self).from_rgba, self.to_rgba(), (r, g, b, a)
+        )
 
-    def replace_hlsa(self, h = None, l = None, s = None, a = None) :
-        "returns a new Colour with the specified (h, l, s, a) components replaced with new" \
-        " values. Each arg can be a real number, or a function of a single real argument" \
-        " that, given the old component value, returns the new component value."
-        return \
-            type(self)._replace_components(type(self).from_hlsa, self.to_hlsa(), (h, l, s, a))
-    #end replace_hlsa
+    # end replace_rgba
 
-    def replace_yiqa(self, y = None, i = None, q = None, a = None) :
-        "returns a new Colour with the specified (y, i, q, a) components replaced with new" \
-        " values. Each arg can be a real number, or a function of a single real argument" \
-        " that, given the old component value, returns the new component value."
-        return \
-            type(self)._replace_components(type(self).from_yiqa, self.to_yiqa(), (y, i, q, a))
-    #end replace_yiqa
+    def replace_hsva(self, h=None, s=None, v=None, a=None):
+        "returns a new Colour with the specified (h, s, v, a) components replaced with new values. Each arg can be a real number, or a function of a single real argument that, given the old component value, returns the new component value."
+        return type(self)._replace_components(
+            type(self).from_hsva, self.to_hsva(), (h, s, v, a)
+        )
 
-    def combine(self, other, rgb_func, alpha_func) :
-        "produces a combination of this Colour with other by applying the specified" \
-        " functions on the respective components. rgb_func must take four arguments" \
-        " (ac, aa, bc, ba), where ac and bc are the corresponding colour components" \
-        " (r, g or b) and aa and ba are the alphas, and returns a new value for that" \
-        " colour component. alpha_func takes two arguments (aa, ba), being the alpha" \
-        " values, and returns the new alpha."
-        return \
-            type(self) \
-              (
-                r = rgb_func(self.r, self.a, other.r, other.a),
-                g = rgb_func(self.g, self.a, other.g, other.a),
-                b = rgb_func(self.b, self.a, other.b, other.a),
-                a = alpha_func(self.a, other.a)
-              )
-    #end combine
+    # end replace_hsva
 
-    def mix(self, other, amt) :
-        "returns a mixture of this Colour with other in the proportion given by amt;" \
-        " if amt is 0, then the result is purely this colour, while if amt is 1, then" \
-        " it is purely other."
-        return \
-            self.combine \
-              (
-                other = other,
-                rgb_func = lambda ac, aa, bc, ba : interp(amt, ac, bc),
-                alpha_func = lambda aa, ba : interp(amt, aa, ba)
-              )
-    #end mix
+    def replace_hlsa(self, h=None, l=None, s=None, a=None):
+        "returns a new Colour with the specified (h, l, s, a) components replaced with new values. Each arg can be a real number, or a function of a single real argument that, given the old component value, returns the new component value."
+        return type(self)._replace_components(
+            type(self).from_hlsa, self.to_hlsa(), (h, l, s, a)
+        )
 
-    class X11_Colours :
+    # end replace_hlsa
+
+    def replace_yiqa(self, y=None, i=None, q=None, a=None):
+        "returns a new Colour with the specified (y, i, q, a) components replaced with new values. Each arg can be a real number, or a function of a single real argument that, given the old component value, returns the new component value."
+        return type(self)._replace_components(
+            type(self).from_yiqa, self.to_yiqa(), (y, i, q, a)
+        )
+
+    # end replace_yiqa
+
+    def combine(self, other, rgb_func, alpha_func):
+        "produces a combination of this Colour with other by applying the specified functions on the respective components. rgb_func must take four arguments (ac, aa, bc, ba), where ac and bc are the corresponding colour components (r, g or b) and aa and ba are the alphas, and returns a new value for that colour component. alpha_func takes two arguments (aa, ba), being the alpha values, and returns the new alpha."
+        return type(self)(
+            r=rgb_func(self.r, self.a, other.r, other.a),
+            g=rgb_func(self.g, self.a, other.g, other.a),
+            b=rgb_func(self.b, self.a, other.b, other.a),
+            a=alpha_func(self.a, other.a),
+        )
+
+    # end combine
+
+    def mix(self, other, amt):
+        "returns a mixture of this Colour with other in the proportion given by amt; if amt is 0, then the result is purely this colour, while if amt is 1, then it is purely other."
+        return self.combine(
+            other=other,
+            rgb_func=lambda ac, aa, bc, ba: interp(amt, ac, bc),
+            alpha_func=lambda aa, ba: interp(amt, aa, ba),
+        )
+
+    # end mix
+
+    class X11_Colours:
         "a dictionary mapping the X11 colour names to their standard values."
 
         colours_filename = "/usr/share/X11/rgb.txt"
 
-        class NamedColour :
-            "stores the colour with its name in the original case, while allowing" \
-            " case-insensitive dictionary lookup."
+        class NamedColour:
+            "stores the colour with its name in the original case, while allowing case-insensitive dictionary lookup."
 
             __slots__ = ("name", "colour")
 
-            def __init__(self, name, colour) :
+            def __init__(self, name, colour):
                 self.name = name
                 self.colour = colour
-            #end __init__
+
+            # end __init__
 
             @property
-            def contents(self) :
-                return \
-                    (self.name, self.colour)
-            #end contents
+            def contents(self):
+                return (self.name, self.colour)
 
-        #end NamedColour
+            # end contents
 
-        def __init__(self) :
+        # end NamedColour
+
+        def __init__(self):
             self._colours = None
-        #end __init__
 
-        class DictView :
-            "behaves like a dictionary view object. The point of doing this is so" \
-            " the caller can find colours with case-insensitive names, while seeing" \
-            " the original case in the names when enumerating colours."
+        # end __init__
 
-            def __init__(self, parent, view_method, repr_name, attr_name) :
+        class DictView:
+            "behaves like a dictionary view object. The point of doing this is so the caller can find colours with case-insensitive names, while seeing the original case in the names when enumerating colours."
+
+            def __init__(self, parent, view_method, repr_name, attr_name):
                 # _parent is the underlying dict;
                 # view_method is the method to call on _parent;
                 # repr_name is the type name to use in the repr string
@@ -4739,224 +5034,227 @@ class Colour :
                 self.view_method = view_method
                 self.repr_name = repr_name
                 self.attr_name = attr_name
-            #end __init
 
-            def __len__(self) :
-                return \
-                    len(self._parent)
-            #end __len__
+            # end __init
 
-            def __iter__(self) :
-                for item in self._parent.values() :
+            def __len__(self):
+                return len(self._parent)
+
+            # end __len__
+
+            def __iter__(self):
+                for item in self._parent.values():
                     yield getattr(item, self.attr_name)
-                #end for
-            #end __iter__
+                # end for
 
-            def __contains__(self, item) :
-                return \
-                    item in getattr(self._parent, self.view_method)()
-            #end __contains__
+            # end __iter__
 
-            def __repr__(self) :
-                return \
-                    (
-                            "%(name)s(%(items)s)"
-                        %
-                            {
-                                "name" : self.repr_name,
-                                "items" : "[%s]" % ", ".join
-                                  (
-                                    repr(getattr(item, self.attr_name))
-                                    for item in self._parent.values()
-                                  ),
-                            }
-                    )
-            #end __repr__
+            def __contains__(self, item):
+                return item in getattr(self._parent, self.view_method)()
 
-        #end DictView
+            # end __contains__
 
-        def _load(self) :
+            def __repr__(self):
+                return "{name}({items})".format(
+                    name=self.repr_name,
+                    items="[%s]"
+                    % ", ".join(
+                        repr(getattr(item, self.attr_name))
+                        for item in self._parent.values()
+                    ),
+                )
+
+            # end __repr__
+
+        # end DictView
+
+        def _load(self):
             # one-shot method which loads the colours on demand.
             # Every user-accessible method has to call this.
             colours = {}
-            seen = set() # so I prefer unconverted names in case of duplicate entries
-              # (not that there actually are any duplicate entries)
+            seen = set()  # so I prefer unconverted names in case of duplicate entries
+            # (not that there actually are any duplicate entries)
             NamedColour = type(self).NamedColour
-            try :
-                for line in open(self.colours_filename, "r") :
-                    if not line.startswith("!") :
+            try:
+                for line in open(self.colours_filename):
+                    if not line.startswith("!"):
                         line = line.strip()
-                        for junk in ("\t", "  ") :
-                            while True :
+                        for junk in ("\t", "  "):
+                            while True:
                                 line2 = line.replace(junk, " ")
-                                if line2 == line :
+                                if line2 == line:
                                     break
                                 line = line2
-                            #end while
-                        #end for
+                            # end while
+                        # end for
                         r, g, b, name = line.split(" ", 3)
                         r, g, b = int(r), int(g), int(b)
                         lc_name = name.lower()
-                        if name == lc_name or lc_name not in seen :
-                            colours[lc_name] = NamedColour \
-                              (
-                                name = name,
-                                colour = Colour.from_rgba((r / 255, g / 255, b / 255))
-                              )
+                        if name == lc_name or lc_name not in seen:
+                            colours[lc_name] = NamedColour(
+                                name=name,
+                                colour=Colour.from_rgba((r / 255, g / 255, b / 255)),
+                            )
                             seen.add(lc_name)
-                        #end if
-                    #end if
-                #end for
-            except IOError :
+                        # end if
+                    # end if
+                # end for
+            except OSError:
                 pass
-            #end try
+            # end try
             self._colours = colours
             # easier reference to inner class names
             self.NamedColour = NamedColour
             self.DictView = type(self).DictView
-            type(self)._load = lambda self : None # you don’t need me any more
-        #end _load
+            type(self)._load = lambda self: None  # you don’t need me any more
+
+        # end _load
 
         # add whatever dict-like methods are useful below
 
-        def __getitem__(self, name) :
+        def __getitem__(self, name):
             self._load()
-            return \
-                self._colours[name.lower()].colour
-        #end __getitem__
+            return self._colours[name.lower()].colour
 
-        def __len__(self) :
+        # end __getitem__
+
+        def __len__(self):
             self._load()
-            return \
-                len(self._colours)
-        #end __len__
+            return len(self._colours)
 
-        def __iter__(self) :
+        # end __len__
+
+        def __iter__(self):
             self._load()
-            return \
-                iter(self.keys())
-        #end __iter__
+            return iter(self.keys())
 
-        def __contains__(self, name) :
+        # end __iter__
+
+        def __contains__(self, name):
             self._load()
-            return \
-                name.lower() in self._colours
-        #end __contains__
+            return name.lower() in self._colours
 
-        def keys(self) :
+        # end __contains__
+
+        def keys(self):
             self._load()
-            return \
-                self.DictView \
-                  (
-                    parent = self._colours,
-                    view_method = "keys",
-                    repr_name = "dict_keys",
-                    attr_name = "name"
-                  )
-        #end keys
+            return self.DictView(
+                parent=self._colours,
+                view_method="keys",
+                repr_name="dict_keys",
+                attr_name="name",
+            )
 
-        def values(self) :
+        # end keys
+
+        def values(self):
             self._load()
-            return \
-                self.DictView \
-                  (
-                    parent = self._colours,
-                    view_method = "values",
-                    repr_name = "dict_values",
-                    attr_name = "colour"
-                  )
-        #end values
+            return self.DictView(
+                parent=self._colours,
+                view_method="values",
+                repr_name="dict_values",
+                attr_name="colour",
+            )
 
-        def items(self) :
+        # end values
+
+        def items(self):
             self._load()
-            return \
-                self.DictView \
-                  (
-                    parent = self._colours,
-                    view_method = "items",
-                    repr_name = "dict_items",
-                    attr_name = "contents"
-                  )
-        #end items
+            return self.DictView(
+                parent=self._colours,
+                view_method="items",
+                repr_name="dict_items",
+                attr_name="contents",
+            )
 
-        def __repr__(self) :
+        # end items
+
+        def __repr__(self):
             self._load()
-            return \
-                repr(self.items())
-        #end __repr__
+            return repr(self.items())
 
-    #end X11_Colours
+        # end __repr__
+
+    # end X11_Colours
 
     x11 = X11_Colours()
 
-#end Colour
 
-class Pattern :
+# end Colour
+
+
+class Pattern:
     "a Cairo Pattern object. Do not instantiate directly; use one of the create methods."
+
     # <http://cairographics.org/manual/cairo-cairo-pattern-t.html>
 
-    __slots__ = ("_cairobj", "_user_data", "_surface", "__weakref__") # to forestall typos
+    __slots__ = (
+        "_cairobj",
+        "_user_data",
+        "_surface",
+        "__weakref__",
+    )  # to forestall typos
 
     _instances = WeakValueDictionary()
     _ud_refs = WeakValueDictionary()
 
-    def _check(self) :
+    def _check(self):
         # check for error from last operation on this Pattern.
         check(cairo.cairo_pattern_status(self._cairobj))
-    #end _check
 
-    def __new__(celf, _cairobj) :
+    # end _check
+
+    def __new__(celf, _cairobj):
         self = celf._instances.get(_cairobj)
-        if self == None :
+        if self is None:
             self = super().__new__(celf)
             self._cairobj = _cairobj
             self._check()
             user_data = celf._ud_refs.get(_cairobj)
-            if user_data == None :
+            if user_data is None:
                 user_data = UserDataDict()
                 celf._ud_refs[_cairobj] = user_data
-            #end if
+            # end if
             self._user_data = user_data
             celf._instances[_cairobj] = self
-        else :
+        else:
             cairo.cairo_pattern_destroy(self._cairobj)
-              # lose extra reference created by caller
-        #end if
-        return \
-            self
-    #end __new__
+            # lose extra reference created by caller
+        # end if
+        return self
 
-    def __del__(self) :
-        if self._cairobj != None :
+    # end __new__
+
+    def __del__(self):
+        if self._cairobj is not None:
             cairo.cairo_pattern_destroy(self._cairobj)
             self._cairobj = None
-        #end if
-    #end __del__
+        # end if
 
-    def add_colour_stop(self, offset, c) :
-        "adds a colour stop. This must be a gradient Pattern, offset is a number in [0, 1]" \
-        " and c must be a Colour or tuple. Returns the same Pattern, to allow for" \
-        " method chaining."
-        cairo.cairo_pattern_add_color_stop_rgba(*((self._cairobj, offset) + tuple(Colour.from_rgba(c))))
+    # end __del__
+
+    def add_colour_stop(self, offset, c):
+        "adds a colour stop. This must be a gradient Pattern, offset is a number in [0, 1] and c must be a Colour or tuple. Returns the same Pattern, to allow for method chaining."
+        cairo.cairo_pattern_add_color_stop_rgba(
+            *((self._cairobj, offset) + tuple(Colour.from_rgba(c)))
+        )
         self._check()
-        return \
-            self
-    #end add_colour_stop
+        return self
 
-    def add_colour_stops(self, stops) :
-        "adds a whole lot of colour stops at once. stops must be a tuple, each" \
-        "element of which must be an (offset, Colour) tuple."
-        for offset, colour in stops :
+    # end add_colour_stop
+
+    def add_colour_stops(self, stops):
+        "adds a whole lot of colour stops at once. stops must be a tuple, eachelement of which must be an (offset, Colour) tuple."
+        for offset, colour in stops:
             self.add_colour_stop(offset, colour)
-        #end for
-        return \
-            self
-    #end add_colour_stops
+        # end for
+        return self
+
+    # end add_colour_stops
 
     @property
-    def colour_stops(self) :
-        "a tuple of the currently-defined (offset, Colour) colour stops. This must" \
-        " be a gradient Pattern."
+    def colour_stops(self):
+        "a tuple of the currently-defined (offset, Colour) colour stops. This must be a gradient Pattern."
         count = ct.c_int()
         check(cairo.cairo_pattern_get_color_stop_count(self._cairobj, ct.byref(count)))
         count = count.value
@@ -4966,797 +5264,841 @@ class Pattern :
         g = ct.c_double()
         b = ct.c_double()
         a = ct.c_double()
-        for i in range(count) :
-            check(cairo.cairo_pattern_get_color_stop_rgba(self._cairobj, i, ct.byref(offset), ct.byref(r), ct.byref(g), ct.byref(b), ct.byref(a)))
+        for i in range(count):
+            check(
+                cairo.cairo_pattern_get_color_stop_rgba(
+                    self._cairobj,
+                    i,
+                    ct.byref(offset),
+                    ct.byref(r),
+                    ct.byref(g),
+                    ct.byref(b),
+                    ct.byref(a),
+                )
+            )
             result.append((offset.value, Colour(r.value, g.value, b.value, a.value)))
-        #end for
-        return \
-            tuple(result)
-    #end colour_stops
+        # end for
+        return tuple(result)
+
+    # end colour_stops
 
     @classmethod
-    def create_colour(celf, c) :
+    def create_colour(celf, c):
         "creates a Pattern that paints the destination with the specified Colour."
-        return \
-            celf(cairo.cairo_pattern_create_rgba(*Colour.from_rgba(c).to_rgba()))
-    #end create_rgb
+        return celf(cairo.cairo_pattern_create_rgba(*Colour.from_rgba(c).to_rgba()))
+
+    # end create_rgb
 
     @property
-    def colour(self) :
+    def colour(self):
         "assumes the Pattern is a solid-colour pattern, returns its Colour."
         r = ct.c_double()
         g = ct.c_double()
         b = ct.c_double()
         a = ct.c_double()
-        check(cairo.cairo_pattern_get_rgba(self._cairobj, ct.byref(r), ct.byref(g), ct.byref(g), ct.byref(a)))
-        return \
-            Colour(r.value, g.value, b.value, a.value)
-    #end colour
+        check(
+            cairo.cairo_pattern_get_rgba(
+                self._cairobj, ct.byref(r), ct.byref(g), ct.byref(g), ct.byref(a)
+            )
+        )
+        return Colour(r.value, g.value, b.value, a.value)
+
+    # end colour
 
     @classmethod
-    def create_for_surface(celf, surface) :
+    def create_for_surface(celf, surface):
         "creates a Pattern that takes its image from the specified Surface."
-        if not isinstance(surface, Surface) :
+        if not isinstance(surface, Surface):
             raise TypeError("surface is not a Surface")
-        #end if
+        # end if
         result = celf(cairo.cairo_pattern_create_for_surface(surface._cairobj))
-        result._surface = surface # to ensure any storage attached to it doesn't go away prematurely
-        return \
-            result
-    #end create_for_surface
+        result._surface = (
+            surface  # to ensure any storage attached to it doesn't go away prematurely
+        )
+        return result
+
+    # end create_for_surface
 
     @property
-    def surface(self) :
+    def surface(self):
         "assuming there is a Surface for which this Pattern was created, returns the Surface."
         surf = ct.c_void_p()
         check(cairo.cairo_pattern_get_surface(self._cairobj, ct.byref(surf)))
-        return \
-            Surface(cairo.cairo_surface_reference(surf.value))
-    #end surface
+        return Surface(cairo.cairo_surface_reference(surf.value))
+
+    # end surface
 
     @classmethod
-    def create_linear(celf, p0, p1, colour_stops = None) :
-        "creates a linear gradient Pattern that varies between the specified Vector" \
-        " points in pattern space. colour_stops is an optional tuple of (offset, Colour)" \
-        " to define the colour stops."
+    def create_linear(celf, p0, p1, colour_stops=None):
+        "creates a linear gradient Pattern that varies between the specified Vector points in pattern space. colour_stops is an optional tuple of (offset, Colour) to define the colour stops."
         p0 = Vector.from_tuple(p0)
         p1 = Vector.from_tuple(p1)
         result = celf(cairo.cairo_pattern_create_linear(p0.x, p0.y, p1.x, p1.y))
-        if colour_stops != None :
+        if colour_stops is not None:
             result.add_colour_stops(colour_stops)
-        #end if
-        return \
-            result
-    #end create_linear
+        # end if
+        return result
+
+    # end create_linear
 
     @property
-    def linear_p0(self) :
+    def linear_p0(self):
         "the first Vector point for a linear gradient Pattern."
         x = ct.c_double()
         y = ct.c_double()
-        check(cairo.cairo_pattern_get_linear_points(self._cairobj, ct.byref(x), ct.byref(y), None, None))
-        return \
-            Vector(x.value, y.value)
-    #end linear_p0
+        check(
+            cairo.cairo_pattern_get_linear_points(
+                self._cairobj, ct.byref(x), ct.byref(y), None, None
+            )
+        )
+        return Vector(x.value, y.value)
+
+    # end linear_p0
 
     @property
-    def linear_p1(self) :
+    def linear_p1(self):
         "the second Vector point for a linear gradient Pattern."
         x = ct.c_double()
         y = ct.c_double()
-        check(cairo.cairo_pattern_get_linear_points(self._cairobj, None, None, ct.byref(x), ct.byref(y)))
-        return \
-            Vector(x.value, y.value)
-    #end linear_p1
+        check(
+            cairo.cairo_pattern_get_linear_points(
+                self._cairobj, None, None, ct.byref(x), ct.byref(y)
+            )
+        )
+        return Vector(x.value, y.value)
+
+    # end linear_p1
 
     @classmethod
-    def create_radial(celf, c0, r0, c1, r1, colour_stops = None) :
-        "creates a radial gradient Pattern varying between the circle centred at Vector c0," \
-        " radius r0 and the one centred at Vector c1, radius r1. colour_stops is an optional" \
-        " tuple of (offset, Colour) to define the colour stops."
+    def create_radial(celf, c0, r0, c1, r1, colour_stops=None):
+        "creates a radial gradient Pattern varying between the circle centred at Vector c0, radius r0 and the one centred at Vector c1, radius r1. colour_stops is an optional tuple of (offset, Colour) to define the colour stops."
         c0 = Vector.from_tuple(c0)
         c1 = Vector.from_tuple(c1)
         result = celf(cairo.cairo_pattern_create_radial(c0.x, c0.y, r0, c1.x, c1.y, r1))
-        if colour_stops != None :
+        if colour_stops is not None:
             result.add_colour_stops(colour_stops)
-        #end if
-        return \
-            result
-    #end create_radial
+        # end if
+        return result
+
+    # end create_radial
 
     @property
-    def radial_c0(self) :
+    def radial_c0(self):
         "the centre of the start circle for a radial gradient Pattern."
         x = ct.c_double()
         y = ct.c_double()
-        check(cairo.cairo_pattern_get_radial_circles(self._cairobj, ct.byref(x), ct.byref(y), None, None, None, None))
-        return \
-            Vector(x.value, y.value)
-    #end radial_c0
+        check(
+            cairo.cairo_pattern_get_radial_circles(
+                self._cairobj, ct.byref(x), ct.byref(y), None, None, None, None
+            )
+        )
+        return Vector(x.value, y.value)
+
+    # end radial_c0
 
     @property
-    def radial_r0(self) :
+    def radial_r0(self):
         "the radius of the start circle for a radial gradient Pattern."
         r = ct.c_double()
-        check(cairo.cairo_pattern_get_radial_circles(self._cairobj, None, None, ct.byref(r), None, None, None))
-        return \
-            r.value
-    #end radial_r0
+        check(
+            cairo.cairo_pattern_get_radial_circles(
+                self._cairobj, None, None, ct.byref(r), None, None, None
+            )
+        )
+        return r.value
+
+    # end radial_r0
 
     @property
-    def radial_c1(self) :
+    def radial_c1(self):
         "the centre of the end circle for a radial gradient Pattern."
         x = ct.c_double()
         y = ct.c_double()
-        check(cairo.cairo_pattern_get_radial_circles(self._cairobj, None, None, None, ct.byref(x), ct.byref(y), None))
-        return \
-            Vector(x.value, y.value)
-    #end radial_c1
+        check(
+            cairo.cairo_pattern_get_radial_circles(
+                self._cairobj, None, None, None, ct.byref(x), ct.byref(y), None
+            )
+        )
+        return Vector(x.value, y.value)
+
+    # end radial_c1
 
     @property
-    def radial_r1(self) :
+    def radial_r1(self):
         "the radius of the end circle for a radial gradient Pattern."
         r = ct.c_double()
-        check(cairo.cairo_pattern_get_radial_circles(self._cairobj, None, None, None, None, None, ct.byref(r)))
-        return \
-            r.value
-    #end radial_r1
+        check(
+            cairo.cairo_pattern_get_radial_circles(
+                self._cairobj, None, None, None, None, None, ct.byref(r)
+            )
+        )
+        return r.value
+
+    # end radial_r1
 
     @property
-    def extend(self) :
-        "how to extend the Pattern to cover a larger area, as a CAIRO.EXTEND_xxx code." \
-        " Note this is ignored for mesh patterns."
-        return \
-            cairo.cairo_pattern_get_extend(self._cairobj)
-    #end extend
+    def extend(self):
+        "how to extend the Pattern to cover a larger area, as a CAIRO.EXTEND_xxx code. Note this is ignored for mesh patterns."
+        return cairo.cairo_pattern_get_extend(self._cairobj)
+
+    # end extend
 
     @extend.setter
-    def extend(self, ext) :
+    def extend(self, ext):
         self.set_extend(ext)
-    #end extend
 
-    def set_extend(self, ext) :
-        "sets a new extend mode. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the extend property."
+    # end extend
+
+    def set_extend(self, ext):
+        "sets a new extend mode. Use for method chaining; otherwise, it’s probably more convenient to assign to the extend property."
         cairo.cairo_pattern_set_extend(self._cairobj, ext)
-        return \
-            self
-    #end set_extend
+        return self
+
+    # end set_extend
 
     @property
-    def filter(self) :
+    def filter(self):
         "how to resize the Pattern, as a CAIRO.FILTER_xxx code."
-        return \
-            cairo.cairo_pattern_get_filter(self._cairobj)
-    #end filter
+        return cairo.cairo_pattern_get_filter(self._cairobj)
+
+    # end filter
 
     @filter.setter
-    def filter(self, filt) :
+    def filter(self, filt):
         self.set_filter(filt)
-    #end filter
 
-    def set_filter(self, filt) :
-        "sets a new filter mode. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the filter property."
+    # end filter
+
+    def set_filter(self, filt):
+        "sets a new filter mode. Use for method chaining; otherwise, it’s probably more convenient to assign to the filter property."
         cairo.cairo_pattern_set_filter(self._cairobj, filt)
-        return \
-            self
-    #end set_filter
+        return self
+
+    # end set_filter
 
     @property
-    def matrix(self) :
+    def matrix(self):
         "the transformation from user space to Pattern space."
         result = CAIRO.matrix_t()
         cairo.cairo_pattern_get_matrix(self._cairobj, ct.byref(result))
-        return \
-            Matrix.from_cairo(result)
-    #end matrix
+        return Matrix.from_cairo(result)
+
+    # end matrix
 
     @matrix.setter
-    def matrix(self, m) :
+    def matrix(self, m):
         self.set_matrix(m)
-    #end matrix
 
-    def set_matrix(self, m) :
-        "sets a new matrix. Use for method chaining; otherwise, it’s" \
-        " probably more convenient to assign to the matrix property."
+    # end matrix
+
+    def set_matrix(self, m):
+        "sets a new matrix. Use for method chaining; otherwise, it’s probably more convenient to assign to the matrix property."
         m = m.to_cairo()
         cairo.cairo_pattern_set_matrix(self._cairobj, ct.byref(m))
-        return \
-            self
-    #end set_matrix
+        return self
+
+    # end set_matrix
 
     @property
-    def user_data(self) :
+    def user_data(self):
         "a dict, initially empty, which may be used by caller for any purpose."
-        return \
-            self._user_data
-    #end user_data
+        return self._user_data
+
+    # end user_data
 
     # Cairo user_data not exposed to caller, probably not useful
 
     # TODO: Raster Sources <http://cairographics.org/manual/cairo-Raster-Sources.html>
 
-#end Pattern
 
-class MeshPattern(Pattern) :
-    "a Cairo tensor-product mesh pattern. Do not instantiate directly; use the create" \
-    " method."
+# end Pattern
+
+
+class MeshPattern(Pattern):
+    "a Cairo tensor-product mesh pattern. Do not instantiate directly; use the create method."
+
     # could let user instantiate directly, but having a create method
     # seems more consistent with behaviour of most other wrapper objects
     # (including superclass).
 
-    __slots__ = () # to forestall typos
+    __slots__ = ()  # to forestall typos
 
     @classmethod
-    def create(celf) :
+    def create(celf):
         "creates a new, empty MeshPattern."
-        return \
-            celf(cairo.cairo_pattern_create_mesh())
-    #end create
+        return celf(cairo.cairo_pattern_create_mesh())
 
-    def begin_patch(self) :
-        "starts defining a new patch for the MeshPattern. The sides of the patch" \
-        " must be defined by one move_to followed by up to 4 line_to/curve_to calls."
+    # end create
+
+    def begin_patch(self):
+        "starts defining a new patch for the MeshPattern. The sides of the patch must be defined by one move_to followed by up to 4 line_to/curve_to calls."
         cairo.cairo_mesh_pattern_begin_patch(self._cairobj)
         self._check()
-        return \
-            self
-    #end begin_patch
+        return self
 
-    def end_patch(self) :
+    # end begin_patch
+
+    def end_patch(self):
         "finishes defining a patch for the MeshPattern."
         cairo.cairo_mesh_pattern_end_patch(self._cairobj)
         self._check()
-        return \
-            self
-    #end end_patch
+        return self
 
-    def move_to(self, p) :
+    # end end_patch
+
+    def move_to(self, p):
         "move_to(p) or move_to((x, y)) -- defines the start point for the sides of the patch."
         p = Vector.from_tuple(p)
         cairo.cairo_mesh_pattern_move_to(self._cairobj, p.x, p.y)
         self._check()
-        return \
-            self
-    #end move_to
+        return self
 
-    def line_to(self, p) :
+    # end move_to
+
+    def line_to(self, p):
         "line_to(p) or line_to((x, y)) -- defines a straight-line side for the current patch."
         p = Vector.from_tuple(p)
         cairo.cairo_mesh_pattern_line_to(self._cairobj, p.x, p.y)
         self._check()
-        return \
-            self
-    #end line_to
+        return self
 
-    def curve_to(self, p1, p2, p3) :
-        "curve_to(p1, p2, p3) or curve_to((x1, y1), (x2, y2), (x3, y3))" \
-        " -- defines a curved side for the current patch."
+    # end line_to
+
+    def curve_to(self, p1, p2, p3):
+        "curve_to(p1, p2, p3) or curve_to((x1, y1), (x2, y2), (x3, y3)) -- defines a curved side for the current patch."
         p1 = Vector.from_tuple(p1)
         p2 = Vector.from_tuple(p2)
         p3 = Vector.from_tuple(p3)
-        cairo.cairo_mesh_pattern_curve_to(self._cairobj, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
+        cairo.cairo_mesh_pattern_curve_to(
+            self._cairobj, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y
+        )
         self._check()
-        return \
-            self
-    #end curve_to
+        return self
 
-    def set_control_point(self, point_num, p) :
-        "defines an interior control point, where point_num must be an integer in [0 .. 3]." \
-        " Changing these from the default turns a Coons patch into a general tensor-product patch."
+    # end curve_to
+
+    def set_control_point(self, point_num, p):
+        "defines an interior control point, where point_num must be an integer in [0 .. 3]. Changing these from the default turns a Coons patch into a general tensor-product patch."
         p = Vector.from_tuple(p)
         cairo.cairo_mesh_pattern_set_control_point(self._cairobj, point_num, p.x, p.y)
         self._check()
-        return \
-            self
-    #end set_control_point
+        return self
 
-    def set_corner_colour(self, corner_num, c) :
-        "defines the Colour at one of the corners, where corner_num must be an integer" \
-        " in [0 .. 3]. Any colours not set default to Colour.grey(0, 0)."
+    # end set_control_point
+
+    def set_corner_colour(self, corner_num, c):
+        "defines the Colour at one of the corners, where corner_num must be an integer in [0 .. 3]. Any colours not set default to Colour.grey(0, 0)."
         c = Colour.from_rgba(c)
-        cairo.cairo_mesh_pattern_set_corner_color_rgba(self._cairobj, corner_num, c.r, c.g, c.b, c.a)
+        cairo.cairo_mesh_pattern_set_corner_color_rgba(
+            self._cairobj, corner_num, c.r, c.g, c.b, c.a
+        )
         self._check()
-        return \
-            self
-    #end set_corner_colour
+        return self
+
+    # end set_corner_colour
 
     @property
-    def patch_count(self) :
+    def patch_count(self):
         "the count of patches defined for the MeshPattern."
         result = ct.c_uint()
         check(cairo.cairo_mesh_pattern_get_patch_count(self._cairobj, ct.byref(result)))
-        return \
-            result.value
-    #end patch_count
+        return result.value
 
-    def get_path(self, patch_num) :
+    # end patch_count
+
+    def get_path(self, patch_num):
         "returns a Path defining the sides of the specified patch_num in [0 .. patch_count - 1]."
         temp = cairo.cairo_mesh_pattern_get_path(self._cairobj, patch_num)
-        try :
+        try:
             result = Path.from_cairo(temp)
-        finally :
+        finally:
             cairo.cairo_path_destroy(temp)
-        #end try
-        return \
-            result
-    #end get_path
+        # end try
+        return result
 
-    def get_control_point(self, patch_num, point_num) :
-        "returns a Vector for one of the interior control points of the specified" \
-        " patch_num in [0 .. patch_count - 1], point_num in [0 .. 3]."
+    # end get_path
+
+    def get_control_point(self, patch_num, point_num):
+        "returns a Vector for one of the interior control points of the specified patch_num in [0 .. patch_count - 1], point_num in [0 .. 3]."
         x = ct.c_double()
         y = ct.c_double()
-        check(cairo.cairo_mesh_pattern_get_control_point(self._cairobj, patch_num, point_num, ct.byref(x), ct.byref(y)))
-        return \
-            Vector(x.value, y.value)
-    #end get_control_point
+        check(
+            cairo.cairo_mesh_pattern_get_control_point(
+                self._cairobj, patch_num, point_num, ct.byref(x), ct.byref(y)
+            )
+        )
+        return Vector(x.value, y.value)
 
-    def get_corner_colour(self, patch_num, corner_num) :
-        "returns a Colour for one of the corners of the specified" \
-        " patch_num in [0 .. patch_count - 1], corner_num in [0 .. 3]."
+    # end get_control_point
+
+    def get_corner_colour(self, patch_num, corner_num):
+        "returns a Colour for one of the corners of the specified patch_num in [0 .. patch_count - 1], corner_num in [0 .. 3]."
         r = ct.c_double()
         g = ct.c_double()
         b = ct.c_double()
         a = ct.c_double()
-        check(cairo.cairo_mesh_pattern_get_corner_color_rgba(self._cairobj, patch_num, corner_num, ct.byref(r), ct.byref(g), ct.byref(b), ct.byref(a)))
-        return \
-            Colour(r.value, g.value, b.value, a.value)
-    #end get_corner_colour
+        check(
+            cairo.cairo_mesh_pattern_get_corner_color_rgba(
+                self._cairobj,
+                patch_num,
+                corner_num,
+                ct.byref(r),
+                ct.byref(g),
+                ct.byref(b),
+                ct.byref(a),
+            )
+        )
+        return Colour(r.value, g.value, b.value, a.value)
 
-#end MeshPattern
+    # end get_corner_colour
 
-class Region :
+
+# end MeshPattern
+
+
+class Region:
     "a Cairo region. Do not instantiate directly; use the create or copy methods."
+
     # <http://cairographics.org/manual/cairo-Regions.html>
 
-    __slots__ = ("_cairobj", "__weakref__") # to forestall typos
+    __slots__ = ("_cairobj", "__weakref__")  # to forestall typos
 
     _instances = WeakValueDictionary()
-      # should I bother? regions cannot currently be attached to other objects.
+    # should I bother? regions cannot currently be attached to other objects.
 
-    def _check(self) :
+    def _check(self):
         # check for error from last operation on this Region.
         check(cairo.cairo_region_status(self._cairobj))
-    #end _check
 
-    def __new__(celf, _cairobj) :
+    # end _check
+
+    def __new__(celf, _cairobj):
         self = celf._instances.get(_cairobj)
-        if self == None :
+        if self is None:
             self = super().__new__(celf)
             self._cairobj = _cairobj
             self._check()
             # self._user_data = {} # not defined for regions
             celf._instances[_cairobj] = self
-        else :
+        else:
             cairo.cairo_region_destroy(self._cairobj)
-              # lose extra reference created by caller
-        #end if
-        return \
-            self
-    #end __new__
+            # lose extra reference created by caller
+        # end if
+        return self
 
-    def __del__(self) :
-        if self._cairobj != None :
+    # end __new__
+
+    def __del__(self):
+        if self._cairobj is not None:
             cairo.cairo_region_destroy(self._cairobj)
             self._cairobj = None
-        #end if
-    #end __del__
+        # end if
+
+    # end __del__
 
     @classmethod
-    def create(celf, initial = None) :
-        "creates a new Region. If initial is not None, it must be a Rect or a tuple or" \
-        " list of Rects specifying the initial extent of the Region. Otherwise, the" \
-        " Region will be initially empty."
-        if initial != None :
-            if isinstance(initial, Rect) :
+    def create(celf, initial=None):
+        "creates a new Region. If initial is not None, it must be a Rect or a tuple or list of Rects specifying the initial extent of the Region. Otherwise, the Region will be initially empty."
+        if initial is not None:
+            if isinstance(initial, Rect):
                 c_rect = initial.to_cairo_int()
                 result = cairo.cairo_region_create_rectangle(ct.byref(c_rect))
-            elif isinstance(initial, tuple) or isinstance(initial, list) :
+            elif isinstance(initial, tuple) or isinstance(initial, list):
                 count = len(initial)
                 c_rects = (count * CAIRO.rectangle_int_t)()
-                for i in range(count) :
+                for i in range(count):
                     c_rects[i] = initial[i].to_cairo_int()
-                #end for
+                # end for
                 result = cairo.cairo_region_create_rectangles(ct.byref(c_rects), count)
-            else :
-                raise TypeError("initial arg must be a Rect, a tuple/list of Rects or None")
-            #end if
-        else :
+            else:
+                raise TypeError(
+                    "initial arg must be a Rect, a tuple/list of Rects or None"
+                )
+            # end if
+        else:
             result = cairo.cairo_region_create()
-        #end if
-        return \
-            celf(result)
-    #end create
+        # end if
+        return celf(result)
 
-    def copy(self) :
+    # end create
+
+    def copy(self):
         "returns a new Region which is a copy of this one."
-        return \
-            type(self)(cairo.cairo_region_copy(self._cairobj))
-    #end copy
+        return type(self)(cairo.cairo_region_copy(self._cairobj))
+
+    # end copy
 
     @property
-    def extents(self) :
+    def extents(self):
         "returns a Rect defining the extents of this Region."
         result = CAIRO.rectangle_int_t()
         cairo.cairo_region_get_extents(self._cairobj, ct.byref(result))
-        return \
-            Rect.from_cairo(result)
-    #end extents
+        return Rect.from_cairo(result)
+
+    # end extents
 
     @property
-    def rectangles(self) :
+    def rectangles(self):
         "iterates over the component Rects of this Region."
         rect = CAIRO.rectangle_int_t()
-        for i in range(cairo.cairo_region_num_rectangles(self._cairobj)) :
+        for i in range(cairo.cairo_region_num_rectangles(self._cairobj)):
             cairo.cairo_region_get_rectangle(self._cairobj, i, ct.byref(rect))
             yield Rect.from_cairo(rect)
-        #end for
-    #end rectangles
+        # end for
+
+    # end rectangles
 
     @property
-    def is_empty(self) :
+    def is_empty(self):
         "is this Region empty."
-        return \
-            cairo.cairo_region_is_empty(self._cairobj)
-    #end is_empty
+        return cairo.cairo_region_is_empty(self._cairobj)
 
-    def contains_point(self, p) :
+    # end is_empty
+
+    def contains_point(self, p):
         "does this region contain the specified (integral) Vector point."
         p = Vector.from_tuple(p).assert_isint()
-        return \
-            cairo.cairo_region_contains_point(self._cairobj, p.x, p.y)
-    #end contains_point
+        return cairo.cairo_region_contains_point(self._cairobj, p.x, p.y)
 
-    def contains_rectangle(self, rect) :
-        "returns a CAIRO.REGION_OVERLAP_xxx code indicating how the specified" \
-        " Rect overlaps this Region."
+    # end contains_point
+
+    def contains_rectangle(self, rect):
+        "returns a CAIRO.REGION_OVERLAP_xxx code indicating how the specified Rect overlaps this Region."
         c_rect = rect.to_cairo_int()
-        return \
-            cairo.cairo_region_contains_rectangle(self._cairobj, ct.byref(c_rect))
-    #end contains_rectangle
+        return cairo.cairo_region_contains_rectangle(self._cairobj, ct.byref(c_rect))
 
-    def __eq__(r1, r2) :
+    # end contains_rectangle
+
+    def __eq__(r1, r2):
         "equality of coverage of two Regions."
-        return \
-            isinstance(r2, Region) and cairo.cairo_region_equal(r1._cairobj, r2._cairobj)
-    #end __eq__
+        return isinstance(r2, Region) and cairo.cairo_region_equal(
+            r1._cairobj, r2._cairobj
+        )
 
-    def __repr__(self) :
+    # end __eq__
+
+    def __repr__(self):
         "displays the rectangles making up this Region."
-        return \
-            "Region.create(%s)" % repr(list(self.rectangles))
-    #end __repr__
+        return "Region.create(%s)" % repr(list(self.rectangles))
 
-    def translate(self, p) :
+    # end __repr__
+
+    def translate(self, p):
         "translates the Region by the specified (integral) Vector."
         p = Vector.from_tuple(p).assert_isint()
         cairo.cairo_region_translate(self._cairobj, p.x, p.y)
-        return \
-            self
-    #end translate
+        return self
 
-    def intersect(self, other) :
-        "replaces this Region with the intersection of itself and the" \
-        " specified Rect or Region."
-        if isinstance(other, Region) :
+    # end translate
+
+    def intersect(self, other):
+        "replaces this Region with the intersection of itself and the specified Rect or Region."
+        if isinstance(other, Region):
             check(cairo.cairo_region_intersect(self._cairobj, other._cairobj))
-        elif isinstance(other, Rect) :
+        elif isinstance(other, Rect):
             c_rect = other.to_cairo_int()
-            check(cairo.cairo_region_intersect_rectangle(self._cairobj, ct.byref(c_rect)))
-        else :
+            check(
+                cairo.cairo_region_intersect_rectangle(self._cairobj, ct.byref(c_rect))
+            )
+        else:
             raise TypeError("can only intersect with another Rect or Region")
-        #end if
-        return \
-            self
-    #end intersect
+        # end if
+        return self
 
-    def subtract(self, other) :
+    # end intersect
+
+    def subtract(self, other):
         "subtracts the specified Rect or Region from this Region."
-        if isinstance(other, Region) :
+        if isinstance(other, Region):
             check(cairo.cairo_region_subtract(self._cairobj, other._cairobj))
-        elif isinstance(other, Rect) :
+        elif isinstance(other, Rect):
             c_rect = other.to_cairo_int()
-            check(cairo.cairo_region_subtract_rectangle(self._cairobj, ct.byref(c_rect)))
-        else :
+            check(
+                cairo.cairo_region_subtract_rectangle(self._cairobj, ct.byref(c_rect))
+            )
+        else:
             raise TypeError("can only subtract another Rect or Region")
-        #end if
-        return \
-            self
-    #end subtract
+        # end if
+        return self
 
-    def union(self, other) :
+    # end subtract
+
+    def union(self, other):
         "includes the specified Rect or Region in this Region."
-        if isinstance(other, Region) :
+        if isinstance(other, Region):
             check(cairo.cairo_region_union(self._cairobj, other._cairobj))
-        elif isinstance(other, Rect) :
+        elif isinstance(other, Rect):
             c_rect = other.to_cairo_int()
             check(cairo.cairo_region_union_rectangle(self._cairobj, ct.byref(c_rect)))
-        else :
+        else:
             raise TypeError("can only unite with another Rect or Region")
-        #end if
-        return \
-            self
-    #end union
+        # end if
+        return self
 
-    def xor(self, other) :
-        "replaces this Region with the exclusive-or between itself and the" \
-        " specified Rect or Region."
-        if isinstance(other, Region) :
+    # end union
+
+    def xor(self, other):
+        "replaces this Region with the exclusive-or between itself and the specified Rect or Region."
+        if isinstance(other, Region):
             check(cairo.cairo_region_xor(self._cairobj, other._cairobj))
-        elif isinstance(other, Rect) :
+        elif isinstance(other, Rect):
             c_rect = other.to_cairo_int()
             check(cairo.cairo_region_xor_rectangle(self._cairobj, ct.byref(c_rect)))
-        else :
+        else:
             raise TypeError("can only xor with another Region")
-        #end if
-        return \
-            self
-    #end xor
+        # end if
+        return self
 
-#end Region
+    # end xor
 
-class Path :
-    "a high-level representation of a Cairo path_t. Instantiate with a sequence" \
-    " of Path.Segment objects, or use the from_cairo, from_elements or from_ft_outline" \
-    " class methods.\n" \
-    "\n" \
-    " Elements are a representation of paths that correspond directly to Cairo" \
-    " path-construction calls, while Segments are a simpler form for doing various" \
-    " path manipulations. Conversions are provided in both directions."
+
+# end Region
+
+
+class Path:
+    "a high-level representation of a Cairo path_t. Instantiate with a sequence of Path.Segment objects, or use the from_cairo, from_elements or from_ft_outline class methods.\n\n Elements are a representation of paths that correspond directly to Cairo path-construction calls, while Segments are a simpler form for doing various path manipulations. Conversions are provided in both directions."
 
     # Unfortunately I cannot provide a to_cairo method, because there is no
     # public Cairo call for allocating a cairo_path_data_t structure. So
     # the conversion from Cairo is one-way, and I have to implement all
     # the drawing from then on.
 
-    __slots__ = ("segments",) # to forestall typos
+    __slots__ = ("segments",)  # to forestall typos
 
-    class Point :
-        "a control point on a Path.Segment. “pt” is the Vector coordinate," \
-        " and “off” is a boolean, True if the point is off-curve, False if" \
-        " on-curve. Two successive on-curve points define a straight line;" \
-        " one off-curve in-between defines a quadratic Bézier, while two" \
-        " successive off-curve points in-between define a cubic Bézier."
+    class Point:
+        "a control point on a Path.Segment. “pt” is the Vector coordinate, and “off” is a boolean, True if the point is off-curve, False if on-curve. Two successive on-curve points define a straight line; one off-curve in-between defines a quadratic Bézier, while two successive off-curve points in-between define a cubic Bézier."
 
         __slots__ = ("pt", "off")
 
-        def __init__(self, pt, off) :
+        def __init__(self, pt, off):
             self.pt = Vector.from_tuple(pt)
             self.off = bool(off)
-        #end __init__
+
+        # end __init__
 
         @classmethod
-        def from_tuple(celf, p) :
+        def from_tuple(celf, p):
             "allows specifying a Point as e.g. ((x, y), off) tuple."
-            if not isinstance(p, celf) :
+            if not isinstance(p, celf):
                 p = celf(*p)
-            #end if
-            return \
-                p
-        #end from_tuple
+            # end if
+            return p
 
-        def transform(self, matrix) :
+        # end from_tuple
+
+        def transform(self, matrix):
             "returns the Point transformed through the Matrix."
-            return \
-                Path.Point(matrix.map(self.pt), self.off)
-        #end transform
+            return Path.Point(matrix.map(self.pt), self.off)
 
-        def __eq__(p1, p2) :
-            return \
-                (
-                    isinstance(p2, Path.Point)
-                and
-                    p1.pt == p2.pt
-                and
-                    p1.off == p2.off
-                )
-        #end __eq__
+        # end transform
 
-        def __repr__(self) :
-            return \
-                "Path.Point(%s, %s)" % (repr(self.pt), repr(self.off))
-        #end __repr__
+        def __eq__(p1, p2):
+            return isinstance(p2, Path.Point) and p1.pt == p2.pt and p1.off == p2.off
 
-    #end Point
+        # end __eq__
 
-    class Segment :
-        "represents a continuous segment of a Path, consisting of a sequence" \
-        " of Points, and an indication of whether the path is closed or not." \
-        " The segment must start (and end, if not closed) with on-curve points."
+        def __repr__(self):
+            return f"Path.Point({repr(self.pt)}, {repr(self.off)})"
+
+        # end __repr__
+
+    # end Point
+
+    class Segment:
+        "represents a continuous segment of a Path, consisting of a sequence of Points, and an indication of whether the path is closed or not. The segment must start (and end, if not closed) with on-curve points."
 
         __slots__ = ("points", "closed")
 
-        def __init__(self, points, closed) :
+        def __init__(self, points, closed):
             self.points = tuple(Path.Point.from_tuple(p) for p in points)
             self.closed = bool(closed)
-            assert \
-                (
-                    len(self.points) == 0
-                or
-                        not self.points[0].off
-                    and
-                        (closed or not self.points[-1].off)
-                )
-        #end __init__
+            assert (
+                len(self.points) == 0
+                or not self.points[0].off
+                and (closed or not self.points[-1].off)
+            )
 
-        def __repr__(self) :
-            return \
-                "Path.Segment([%s], %s)" % (", ".join(repr(p) for p in self.points), self.closed)
-        #end __repr__
+        # end __init__
 
-        def transform(self, matrix) :
+        def __repr__(self):
+            return "Path.Segment([{}], {})".format(
+                ", ".join(repr(p) for p in self.points), self.closed
+            )
+
+        # end __repr__
+
+        def transform(self, matrix):
             "returns the Segment transformed through the Matrix."
-            return \
-                Path.Segment((p.transform(matrix) for p in self.points), self.closed)
-        #end transform
+            return Path.Segment((p.transform(matrix) for p in self.points), self.closed)
 
-        def reverse(self) :
+        # end transform
+
+        def reverse(self):
             "returns a Segment with the same control points, but in reverse order."
-            return \
-                Path.Segment(reversed(self.points), self.closed)
-        #end reverse
+            return Path.Segment(reversed(self.points), self.closed)
 
-        def clockwise(self) :
-            "does the path segment go in a clockwise direction (assuming the default" \
-            " Cairo coordinate orientation)."
+        # end reverse
+
+        def clockwise(self):
+            "does the path segment go in a clockwise direction (assuming the default Cairo coordinate orientation)."
             sum = 0
             prevpt = self.points[-1].pt
-            for pt in self.points :
+            for pt in self.points:
                 pt = pt.pt
                 sum += prevpt.cross(pt - prevpt)
                 prevpt = pt
-            #end for
-            return \
-                sum >= 0
-        #end clockwise
+            # end for
+            return sum >= 0
 
-        def pieces(self) :
-            "iterates over the pieces of the path, namely the sequence of Vector coordinates" \
-            " of the points between two successive on-curve points."
+        # end clockwise
+
+        def pieces(self):
+            "iterates over the pieces of the path, namely the sequence of Vector coordinates of the points between two successive on-curve points."
             seg_points = iter(self.points)
             p0 = next(seg_points)
             assert not p0.off
             p0 = p0.pt
-            while True :
+            while True:
                 pt = next(seg_points, None)
-                if pt == None :
+                if pt is None:
                     break
                 pts = [p0]
-                while True :
+                while True:
                     # piece ends at next on-curve point
                     pts.append(pt.pt)
-                    if not pt.off :
+                    if not pt.off:
                         break
                     pt = next(seg_points)
-                #end while
+                # end while
                 yield tuple(pts)
                 p0 = pts[-1]
-            #end while
-        #end pieces
+            # end while
 
-        def to_elements(self, relative = False, origin = None) :
+        # end pieces
+
+        def to_elements(self, relative=False, origin=None):
             "yields a sequence of Path.Element objects that will draw the path segment."
             pts = []
             prevpt = None
             points = self.points
-            if self.closed and len(points) != 0 and points[-1].off :
+            if self.closed and len(points) != 0 and points[-1].off:
                 points += (points[0],)
-            #end if
-            for p in points :
-                if relative and origin != None :
+            # end if
+            for p in points:
+                if relative and origin is not None:
                     p = Path.Point(p.pt - origin, p.off)
-                #end if
+                # end if
                 pts.append(p.pt)
-                if p.off :
-                    assert prevpt != None
-                else :
-                    if prevpt == None :
+                if p.off:
+                    assert prevpt is not None
+                else:
+                    if prevpt is None:
                         yield (Path.MoveTo, Path.RelMoveTo)[relative](pts[0])
-                    #end if
-                    if len(pts) == 1 :
-                        if prevpt != None :
+                    # end if
+                    if len(pts) == 1:
+                        if prevpt is not None:
                             yield (Path.LineTo, Path.RelLineTo)[relative](pts[0])
-                        #end if
-                    elif len(pts) == 2 :
-                        if prevpt != None :
+                        # end if
+                    elif len(pts) == 2:
+                        if prevpt is not None:
                             p0 = prevpt
-                        else :
+                        else:
                             p0 = pts[0]
-                        #end if
-                        yield (Path.CurveTo, Path.RelCurveTo)[relative](*Path.cubify(*([p0] + pts))[1:])
-                    elif len(pts) == 3 :
+                        # end if
+                        yield (Path.CurveTo, Path.RelCurveTo)[relative](
+                            *Path.cubify(*([p0] + pts))[1:]
+                        )
+                    elif len(pts) == 3:
                         yield (Path.CurveTo, Path.RelCurveTo)[relative](*pts)
-                    else :
-                        raise NotImplementedError \
-                          (
+                    else:
+                        raise NotImplementedError(
                             "Cairo cannot handle higher-order Béziers than cubic"
-                          )
-                    #end if
-                    if origin != None :
+                        )
+                    # end if
+                    if origin is not None:
                         origin += pts[-1]
-                    else :
+                    else:
                         origin = pts[-1]
-                    #end if
+                    # end if
                     prevpt = origin
                     pts = []
-                #end if
-            #end for
+                # end if
+            # end for
             assert len(pts) == 0
-            if self.closed :
+            if self.closed:
                 yield Path.Close()
-            #end if
-        #end to_elements
+            # end if
 
-        def draw(self, ctx, matrix = None, relative = False, origin = None) :
-            "draws the path segment into the Context, optionally transformed by" \
-            " the Matrix."
-            if not isinstance(ctx, Context) :
+        # end to_elements
+
+        def draw(self, ctx, matrix=None, relative=False, origin=None):
+            "draws the path segment into the Context, optionally transformed by the Matrix."
+            if not isinstance(ctx, Context):
                 raise TypeError("ctx must be a Context")
-            #end if
-            for elt in self.to_elements(relative, origin) :
+            # end if
+            for elt in self.to_elements(relative, origin):
                 elt.draw(ctx, matrix)
-            #end for
-        #end draw
+            # end for
 
-        def flatten(self, tolerance = default_tolerance) :
-            "returns a flattened version of this Segment, with all curves expanded" \
-            " to straight-line segments according to the specified tolerance."
-            result_path = \
-                (Context.create_for_dummy()
-                    .set_tolerance(tolerance)
-                    .append_path(Path([self]))
-                    .copy_path_flat()
-                )
+        # end draw
+
+        def flatten(self, tolerance=default_tolerance):
+            "returns a flattened version of this Segment, with all curves expanded to straight-line segments according to the specified tolerance."
+            result_path = (
+                Context.create_for_dummy()
+                .set_tolerance(tolerance)
+                .append_path(Path([self]))
+                .copy_path_flat()
+            )
             assert len(result_path.segments) == 1
-            return \
-                result_path.segments[0]
-        #end flatten
+            return result_path.segments[0]
 
-        def extents(self, tolerance = default_tolerance) :
+        # end flatten
+
+        def extents(self, tolerance=default_tolerance):
             "returns a Rect representing the extents of this path segment."
-            return \
-                (Context.create_for_dummy()
-                    .set_tolerance(tolerance)
-                    .append_path(Path([self]))
-                    .path_extents
-                )
-        #end extents
+            return (
+                Context.create_for_dummy()
+                .set_tolerance(tolerance)
+                .append_path(Path([self]))
+                .path_extents
+            )
 
-    #end Segment
+        # end extents
 
-    def __init__(self, segments) :
+    # end Segment
+
+    def __init__(self, segments):
         self.segments = []
-        for seg in segments :
-            if not isinstance(seg, Path.Segment) :
+        for seg in segments:
+            if not isinstance(seg, Path.Segment):
                 raise TypeError("path segment is not a Path.Segment")
-            #end if
+            # end if
             self.segments.append(seg)
-        #end for
-    #end __init__
+        # end for
 
-    def __repr__(self) :
-        return \
-            "Path(%s)" % repr(tuple(self.segments))
-    #end __repr__
+    # end __init__
 
-    def __add__(p1, p2) :
+    def __repr__(self):
+        return "Path(%s)" % repr(tuple(self.segments))
+
+    # end __repr__
+
+    def __add__(p1, p2):
         "returns a Path which combines the Segments from two Paths."
-        if not isinstance(p2, Path) :
+        if not isinstance(p2, Path):
             raise TypeError("can only add to another Path")
-        #end if
-        return \
-            Path(p1.segments + p2.segments)
-    #end __add__
+        # end if
+        return Path(p1.segments + p2.segments)
 
-    class Element :
-        "base class for path elements that map directly to Cairo path-construction" \
-        " calls. Do not instantiate directly; instantiate subclasses intead."
+    # end __add__
+
+    class Element:
+        "base class for path elements that map directly to Cairo path-construction calls. Do not instantiate directly; instantiate subclasses intead."
 
         __slots__ = ("type", "relative", "points", "meth")
 
-        def __init__(self, type, relative, points, meth) :
+        def __init__(self, type, relative, points, meth):
             # type is CAIRO.PATH_xxxx code, points is tuple of points,
             # relative indicates whether to use relative or absolute Cairo
             # path-construction calls, meth is Context instance method
@@ -5765,1110 +6107,1154 @@ class Path :
             self.points = tuple(Vector.from_tuple(p) for p in points)
             self.relative = relative
             self.meth = meth
-        #end __init__
 
-        def transform(self, matrix) :
-            "returns a copy of the Element with control points transformed" \
-            " by the specified Matrix."
-            return \
-                type(self)(*matrix.mapiter(self.points))
-        #end transform
+        # end __init__
 
-        def draw(self, g, matrix = None) :
+        def transform(self, matrix):
+            "returns a copy of the Element with control points transformed by the specified Matrix."
+            return type(self)(*matrix.mapiter(self.points))
+
+        # end transform
+
+        def draw(self, g, matrix=None):
             "draws the element into the Context g, optionally transformed by the matrix."
-            if matrix != None :
+            if matrix is not None:
                 p = tuple(matrix.mapiter(self.points))
-            else :
+            else:
                 p = self.points
-            #end if
+            # end if
             self.meth(*((g,) + p))
-        #end draw
 
-        def __repr__(self) :
-            return \
-                "%s(%s)" % (type(self).__name__, ", ".join(repr(tuple(p)) for p in self.points))
-        #end __repr__
+        # end draw
 
-    #end Element
+        def __repr__(self):
+            return "{}({})".format(
+                type(self).__name__, ", ".join(repr(tuple(p)) for p in self.points)
+            )
 
-    class MoveTo(Element) :
+        # end __repr__
+
+    # end Element
+
+    class MoveTo(Element):
         "represents a move_to the specified Vector position."
 
-        def __init__(self, p) :
+        def __init__(self, p):
             super().__init__(CAIRO.PATH_MOVE_TO, False, (p,), Context.move_to)
-        #end __init__
 
-    #end MoveTo
+        # end __init__
 
-    class RelMoveTo(Element) :
+    # end MoveTo
+
+    class RelMoveTo(Element):
         "represents a rel_move_to the specified Vector position."
 
-        def __init__(self, p) :
+        def __init__(self, p):
             super().__init__(CAIRO.PATH_MOVE_TO, True, (p,), Context.rel_move_to)
-        #end __init__
 
-    #end RelMoveTo
+        # end __init__
 
-    class LineTo(Element) :
+    # end RelMoveTo
+
+    class LineTo(Element):
         "represents a line_to the specified Vector position."
 
-        def __init__(self, p) :
+        def __init__(self, p):
             super().__init__(CAIRO.PATH_LINE_TO, False, (p,), Context.line_to)
-        #end __init__
 
-    #end LineTo
+        # end __init__
 
-    class RelLineTo(Element) :
+    # end LineTo
+
+    class RelLineTo(Element):
         "represents a rel_line_to the specified Vector position."
 
-        def __init__(self, p) :
+        def __init__(self, p):
             super().__init__(CAIRO.PATH_LINE_TO, True, (p,), Context.rel_line_to)
-        #end __init__
 
-    #end RelLineTo
+        # end __init__
 
-    class CurveTo(Element) :
+    # end RelLineTo
+
+    class CurveTo(Element):
         "represents a curve_to via the specified three Vector positions."
 
-        def __init__(self, p1, p2, p3) :
+        def __init__(self, p1, p2, p3):
             super().__init__(CAIRO.PATH_CURVE_TO, False, (p1, p2, p3), Context.curve_to)
-        #end __init__
 
-    #end CurveTo
+        # end __init__
 
-    class RelCurveTo(Element) :
+    # end CurveTo
+
+    class RelCurveTo(Element):
         "represents a rel_curve_to via the specified three Vector positions."
 
-        def __init__(self, p1, p2, p3) :
-            super().__init__(CAIRO.PATH_CURVE_TO, True, (p1, p2, p3), Context.rel_curve_to)
-        #end __init__
+        def __init__(self, p1, p2, p3):
+            super().__init__(
+                CAIRO.PATH_CURVE_TO, True, (p1, p2, p3), Context.rel_curve_to
+            )
 
-    #end RelCurveTo
+        # end __init__
 
-    class Close(Element) :
+    # end RelCurveTo
+
+    class Close(Element):
         "represents a closing of the current path."
 
-        def __init__(self) :
+        def __init__(self):
             super().__init__(CAIRO.PATH_CLOSE_PATH, False, (), Context.close_path)
-        #end __init__
 
-    #end Close
+        # end __init__
 
-    element_types = \
-        { # number of control points and Element subclasses for each path element type
-            CAIRO.PATH_MOVE_TO : {"nr" : 1, "type" : MoveTo, "reltype" : RelMoveTo},
-            CAIRO.PATH_LINE_TO : {"nr" : 1, "type" : LineTo, "reltype" : RelLineTo},
-            CAIRO.PATH_CURVE_TO : {"nr" : 3, "type" : CurveTo, "reltype" : RelCurveTo},
-            CAIRO.PATH_CLOSE_PATH : {"nr" : 0, "type" : Close, "reltype" : Close},
-        }
+    # end Close
+
+    element_types = {  # number of control points and Element subclasses for each path element type
+        CAIRO.PATH_MOVE_TO: {"nr": 1, "type": MoveTo, "reltype": RelMoveTo},
+        CAIRO.PATH_LINE_TO: {"nr": 1, "type": LineTo, "reltype": RelLineTo},
+        CAIRO.PATH_CURVE_TO: {"nr": 3, "type": CurveTo, "reltype": RelCurveTo},
+        CAIRO.PATH_CLOSE_PATH: {"nr": 0, "type": Close, "reltype": Close},
+    }
 
     @classmethod
-    def from_elements(celf, elts, clean = True, origin = None) :
-        "constructs a Path from a sequence of Path.Element objects in elts. clean indicates" \
-        " whether to omit isolated single-point segments. origin is a Vector only" \
-        " needed if elts begins with a relative operator; otherwise it is ignored."
+    def from_elements(celf, elts, clean=True, origin=None):
+        "constructs a Path from a sequence of Path.Element objects in elts. clean indicates whether to omit isolated single-point segments. origin is a Vector only needed if elts begins with a relative operator; otherwise it is ignored."
         segs = []
         seg = None
         elts = iter(elts)
-        while True :
+        while True:
             elt = next(elts, None)
-            if elt == None or elt.type == CAIRO.PATH_MOVE_TO :
-                if seg != None :
-                    if not clean or len(seg) > 1 :
+            if elt is None or elt.type == CAIRO.PATH_MOVE_TO:
+                if seg is not None:
+                    if not clean or len(seg) > 1:
                         segs.append(Path.Segment(seg, False))
-                    #end if
+                    # end if
                     seg = None
-                #end if
-                if elt == None :
+                # end if
+                if elt is None:
                     break
-            #end if
-            if elt.type == CAIRO.PATH_CLOSE_PATH :
-                if seg != None :
-                    if not clean or len(seg) > 1 :
-                        if not clean or seg[-1] != seg[0] :
+            # end if
+            if elt.type == CAIRO.PATH_CLOSE_PATH:
+                if seg is not None:
+                    if not clean or len(seg) > 1:
+                        if not clean or seg[-1] != seg[0]:
                             seg.append(seg[0])
-                        #end if
+                        # end if
                         segs.append(Path.Segment(seg, True))
-                    #end if
+                    # end if
                     seg = None
-                #end if
-            else :
+                # end if
+            else:
                 segstarted = False
-                if elt.relative :
-                    assert origin != None, "no origin available for relative path element"
+                if elt.relative:
+                    assert origin is not None, (
+                        "no origin available for relative path element"
+                    )
                     points = list(p + origin for p in elt.points)
-                else :
+                else:
                     points = elt.points
-                #end if
+                # end if
                 origin = points[-1]
-                if seg == None :
+                if seg is None:
                     seg = [Path.Point(points[0], False)]
                     segstarted = True
-                #end if
-                if elt.type == CAIRO.PATH_LINE_TO :
-                    if not segstarted :
+                # end if
+                if elt.type == CAIRO.PATH_LINE_TO:
+                    if not segstarted:
                         seg.append(Path.Point(points[0], False))
-                    #end if
-                elif elt.type == CAIRO.PATH_CURVE_TO :
-                    seg.extend \
-                      (
+                    # end if
+                elif elt.type == CAIRO.PATH_CURVE_TO:
+                    seg.extend(
                         [
                             Path.Point(points[0], True),
                             Path.Point(points[1], True),
                             Path.Point(points[2], False),
                         ]
-                      )
-                #end if
-            #end if
-        #end while
-        return \
-            celf(segs)
-    #end from_elements
+                    )
+                # end if
+            # end if
+        # end while
+        return celf(segs)
+
+    # end from_elements
 
     @classmethod
-    def from_cairo(celf, path) :
+    def from_cairo(celf, path):
         "translates a CAIRO.path_data_t to a Path."
         elements = []
         data = ct.cast(path, CAIRO.path_ptr_t).contents.data
         nrelts = ct.cast(path, CAIRO.path_ptr_t).contents.num_data
         i = 0
-        while True :
-            if i == nrelts :
+        while True:
+            if i == nrelts:
                 break
             i += 1
             header = ct.cast(data, CAIRO.path_data_t.header_ptr_t).contents
-            assert header.length == celf.element_types[header.type]["nr"] + 1, \
-                (
-                    "expecting %d control points for path elt type %d, got %d"
-                %
-                    (celf.element_types[header.type]["nr"] + 1, header.type, header.length)
+            assert header.length == celf.element_types[header.type]["nr"] + 1, (
+                "expecting %d control points for path elt type %d, got %d"
+                % (
+                    celf.element_types[header.type]["nr"] + 1,
+                    header.type,
+                    header.length,
                 )
+            )
             data += ct.sizeof(CAIRO.path_data_t)
             points = []
-            for j in range(header.length - 1) :
+            for j in range(header.length - 1):
                 assert i < nrelts, "buffer overrun"
                 i += 1
                 point = ct.cast(data, CAIRO.path_data_t.point_ptr_t).contents
                 points.append((point.x, point.y))
                 data += ct.sizeof(CAIRO.path_data_t)
-            #end for
+            # end for
             elements.append(celf.element_types[header.type]["type"](*points))
-        #end for
-        return \
-            celf.from_elements(elements)
-    #end from_cairo
+        # end for
+        return celf.from_elements(elements)
+
+    # end from_cairo
 
     @classmethod
-    def from_ft_outline(celf, outline, shift = 0, delta = 0) :
+    def from_ft_outline(celf, outline, shift=0, delta=0):
         "converts a freetype2.Outline to a Path."
 
         segs = []
         seg = None
 
-        def flush_seg() :
+        def flush_seg():
             nonlocal seg
-            if seg != None :
+            if seg is not None:
                 segs.append(Path.Segment(seg, True))
                 seg = None
-            #end if
-        #end flush_seg
+            # end if
 
-        def move_to(p, _) :
+        # end flush_seg
+
+        def move_to(p, _):
             nonlocal seg
             flush_seg()
             seg = [Path.Point(p, False)]
-            return \
-                0
-        #end move_to
+            return 0
 
-        def line_to(p, _) :
+        # end move_to
+
+        def line_to(p, _):
             seg.append(Path.Point(p, False))
-            return \
-                0
-        #end line_to
+            return 0
 
-        def conic_to(p1, p2, _) :
+        # end line_to
+
+        def conic_to(p1, p2, _):
             seg.extend([Path.Point(p1, True), Path.Point(p2, False)])
-            return \
-                0
-        #end conic_to
+            return 0
 
-        def cubic_to(p1, p2, p3, _) :
-            seg.extend([Path.Point(p1, True), Path.Point(p2, True), Path.Point(p3, False)])
-            return \
-                0
-        #end cubic_to
+        # end conic_to
 
-    #begin from_ft_outline
-        outline.decompose \
-          (
-            move_to = move_to,
-            line_to = line_to,
-            conic_to = conic_to,
-            cubic_to = cubic_to,
-            arg = None,
-            shift = shift,
-            delta = delta,
-          )
+        def cubic_to(p1, p2, p3, _):
+            seg.extend(
+                [Path.Point(p1, True), Path.Point(p2, True), Path.Point(p3, False)]
+            )
+            return 0
+
+        # end cubic_to
+
+        # begin from_ft_outline
+        outline.decompose(
+            move_to=move_to,
+            line_to=line_to,
+            conic_to=conic_to,
+            cubic_to=cubic_to,
+            arg=None,
+            shift=shift,
+            delta=delta,
+        )
         flush_seg()
-        return \
-            Path(segs)
-    #end from_ft_outline
+        return Path(segs)
+
+    # end from_ft_outline
 
     @staticmethod
-    def create_arc(centre, radius, angle1, angle2, negative, closed = False) :
-        "creates a Path consisting of a segment of a circular arc as constructed" \
-        " by Context.arc."
+    def create_arc(centre, radius, angle1, angle2, negative, closed=False):
+        "creates a Path consisting of a segment of a circular arc as constructed by Context.arc."
         g = Context.create_for_dummy()
         g.arc(centre, radius, angle1, angle2, negative)
-        if closed :
+        if closed:
             g.close_path()
-        #end if
-        return \
-                g.copy_path()
-    #end create_arc
+        # end if
+        return g.copy_path()
+
+    # end create_arc
 
     @staticmethod
-    def create_round_rect(bounds, radius) :
-        "creates a Path representing a rounded-corner rectangle. bounds is a" \
-        " Rect defining the bounds of the rectangle, and radius is either a number" \
-        " or a Vector defining the horizontal and vertical corner radii."
-        if isinstance(radius, Real) :
+    def create_round_rect(bounds, radius):
+        "creates a Path representing a rounded-corner rectangle. bounds is a Rect defining the bounds of the rectangle, and radius is either a number or a Vector defining the horizontal and vertical corner radii."
+        if isinstance(radius, Real):
             radius = Vector(1, 1) * radius
-        elif isinstance(radius, tuple) :
+        elif isinstance(radius, tuple):
             radius = Vector.from_tuple(radius)
-        elif not isinstance(radius, Vector) :
+        elif not isinstance(radius, Vector):
             raise TypeError("radius must be a number or a Vector")
-        #end if
+        # end if
         g = Context.create_for_dummy()
         corner1 = bounds.topleft
-        for side in range(4) :
+        for side in range(4):
             angle = side / 4 * circle
             step = Vector(1, 0).rotate(angle)
             corner2 = corner1 + step * bounds.dimensions
             g.line_to(corner1 + step * radius)
             g.rel_line_to(step * (bounds.dimensions - 2 * radius))
-            for elt in \
-                (Path.create_arc
-                  (
-                    centre = (0, 0),
-                    radius = 1,
-                    angle1 = angle - 90 * deg,
-                    angle2 = angle,
-                    negative = False
-                  )
-                    .transform
-                      (
-                            Matrix.translate
-                              (
-                                    corner2
-                                +
-                                    Vector(1, 1).rotate(angle + 90 * deg) * radius
-                              )
-                        *
-                            Matrix.scale(radius)
-                      )
-                    .to_elements()
-                ) \
-            :
-                if elt.type != CAIRO.PATH_MOVE_TO :
+            for elt in (
+                Path.create_arc(
+                    centre=(0, 0),
+                    radius=1,
+                    angle1=angle - 90 * deg,
+                    angle2=angle,
+                    negative=False,
+                )
+                .transform(
+                    Matrix.translate(
+                        corner2 + Vector(1, 1).rotate(angle + 90 * deg) * radius
+                    )
+                    * Matrix.scale(radius)
+                )
+                .to_elements()
+            ):
+                if elt.type != CAIRO.PATH_MOVE_TO:
                     elt.draw(g)
-                #end if
-            #end for
+                # end if
+            # end for
             corner1 = corner2
-        #end for
+        # end for
         g.close_path()
-        return \
-            g.copy_path()
-    #end create_round_rect
+        return g.copy_path()
 
-    def to_elements(self, relative = False) :
+    # end create_round_rect
+
+    def to_elements(self, relative=False):
         "yields a sequence of Path.Element objects that will draw the path."
         origin = None
-        for seg in self.segments :
-            for elt in seg.to_elements(relative, origin) :
-                yield elt
-            #end for
-            if relative and len(seg.points) != 0 :
+        for seg in self.segments:
+            yield from seg.to_elements(relative, origin)
+            # end for
+            if relative and len(seg.points) != 0:
                 origin = seg.points[-1].pt
-            #end if
-        #end for
-    #end to_elements
+            # end if
+        # end for
+
+    # end to_elements
 
     @staticmethod
-    def cubify(p1, p2, p3) :
-        "given three Vectors defining a quadratic Bézier, returns a tuple of four" \
-        " Vectors defining the same curve as a cubic Bézier."
+    def cubify(p1, p2, p3):
+        "given three Vectors defining a quadratic Bézier, returns a tuple of four Vectors defining the same curve as a cubic Bézier."
         # quadratic-to-cubic conversion taken from
         # <http://stackoverflow.com/questions/3162645/convert-a-quadratic-bezier-to-a-cubic>
         p1 = Vector.from_tuple(p1)
         p2 = Vector.from_tuple(p2)
         p3 = Vector.from_tuple(p3)
-        return \
-            (
-                p1,
-                p1 + 2 * (p2 - p1) / 3,
-                p3 + 2 * (p2 - p3) / 3,
-                p3
-            )
-    #end cubify
+        return (p1, p1 + 2 * (p2 - p1) / 3, p3 + 2 * (p2 - p3) / 3, p3)
 
-    def draw(self, ctx, matrix = None, relative = False) :
+    # end cubify
+
+    def draw(self, ctx, matrix=None, relative=False):
         "draws the Path into a Context, optionally transformed by the given Matrix."
-        if not isinstance(ctx, Context) :
+        if not isinstance(ctx, Context):
             raise TypeError("ctx must be a Context")
-        #end if
-        for seg in self.segments :
+        # end if
+        for seg in self.segments:
             seg.draw(ctx, matrix, relative)
-        #end for
-    #end draw
+        # end for
 
-    def transform(self, matrix) :
+    # end draw
+
+    def transform(self, matrix):
         "returns a copy of this Path with elements transformed by the given Matrix."
-        return \
-            Path \
-              (
-                seg.transform(matrix) for seg in self.segments
-              )
-    #end transform
+        return Path(seg.transform(matrix) for seg in self.segments)
 
-    def reverse(self) :
-        "returns a Path with the same shape, but which goes through the points" \
-        " in the opposite order from this one."
-        return \
-            Path(reversed(tuple(seg.reverse() for seg in self.segments)))
-    #end reverse
+    # end transform
 
-    def flatten(self, tolerance = default_tolerance) :
-        "returns a flattened version of this Path, with all curves expanded" \
-        " to straight-line segments according to the specified tolerance."
-        return \
-            (Context.create_for_dummy()
-                .set_tolerance(tolerance)
-                .append_path(self)
-                .copy_path_flat()
-            )
-    #end flatten
+    def reverse(self):
+        "returns a Path with the same shape, but which goes through the points in the opposite order from this one."
+        return Path(reversed(tuple(seg.reverse() for seg in self.segments)))
 
-    def extents(self, tolerance = default_tolerance) :
-        "returns a Rect representing the extents of this Path."
-        return \
-            (Context.create_for_dummy()
-                .set_tolerance(tolerance)
-                .append_path(self)
-                .path_extents
-            )
-    #end extents
+    # end reverse
 
-#end Path
-
-class FontOptions :
-    "Cairo font options. Use the create method, with optional initial settings," \
-    " to create a new font_options_t object."
-    # <http://cairographics.org/manual/cairo-cairo-font-options-t.html>
-
-    __slots__ = ("_cairobj",) # to forestall typos
-
-    props = \
-        (
-            "antialias",
-            "subpixel_order",
-            "hint_style",
-            "hint_metrics",
+    def flatten(self, tolerance=default_tolerance):
+        "returns a flattened version of this Path, with all curves expanded to straight-line segments according to the specified tolerance."
+        return (
+            Context.create_for_dummy()
+            .set_tolerance(tolerance)
+            .append_path(self)
+            .copy_path_flat()
         )
 
-    def _check(self) :
+    # end flatten
+
+    def extents(self, tolerance=default_tolerance):
+        "returns a Rect representing the extents of this Path."
+        return (
+            Context.create_for_dummy()
+            .set_tolerance(tolerance)
+            .append_path(self)
+            .path_extents
+        )
+
+    # end extents
+
+
+# end Path
+
+
+class FontOptions:
+    "Cairo font options. Use the create method, with optional initial settings, to create a new font_options_t object."
+
+    # <http://cairographics.org/manual/cairo-cairo-font-options-t.html>
+
+    __slots__ = ("_cairobj",)  # to forestall typos
+
+    props = (
+        "antialias",
+        "subpixel_order",
+        "hint_style",
+        "hint_metrics",
+    )
+
+    def _check(self):
         # check for error from last operation on this FontOptions.
         check(cairo.cairo_font_options_status(self._cairobj))
-    #end _check
 
-    def __init__(self, existing = None) :
-        if existing == None :
+    # end _check
+
+    def __init__(self, existing=None):
+        if existing is None:
             self._cairobj = cairo.cairo_font_options_create()
-        else :
+        else:
             self._cairobj = existing
-        #end if
+        # end if
         self._check()
-    #end __init__
 
-    def __del__(self) :
-        if self._cairobj != None :
+    # end __init__
+
+    def __del__(self):
+        if self._cairobj is not None:
             cairo.cairo_font_options_destroy(self._cairobj)
             self._cairobj = None
-        #end if
-    #end __del__
+        # end if
+
+    # end __del__
 
     @classmethod
-    def create(celf, **kwargs) :
+    def create(celf, **kwargs):
         "creates a new FontOptions object. See FontOptions.props for valid arg keywords."
         leftover = set(kwargs.keys()) - set(FontOptions.props)
-        if len(leftover) != 0 :
+        if len(leftover) != 0:
             raise TypeError("unexpected arguments %s" % ", ".join(leftover))
-        #end if
+        # end if
         result = celf()
-        for k in celf.props :
-            if k in kwargs :
+        for k in celf.props:
+            if k in kwargs:
                 setattr(result, k, kwargs[k])
-            #end if
-        #end for
-        return \
-            result
-    #end create
+            # end if
+        # end for
+        return result
+
+    # end create
     # create.__doc__ = "valid args are %s" % ", ".join(props) # either not allowed or no point
 
-    def copy(self) :
+    def copy(self):
         "returns a copy of this FontOptions in a new object."
-        return \
-            type(self)(cairo.cairo_font_options_copy(self._cairobj))
-    #end copy
+        return type(self)(cairo.cairo_font_options_copy(self._cairobj))
 
-    def merge(self, other) :
+    # end copy
+
+    def merge(self, other):
         "merges non-default options from another FontOptions object."
-        if not isinstance(other, FontOptions) :
+        if not isinstance(other, FontOptions):
             raise TypeError("can only merge with another FontOptions object")
-        #end if
+        # end if
         cairo.cairo_font_options_merge(self._cairobj, other._cairobj)
         self._check()
-    #end merge
 
-    def __eq__(self, other) :
+    # end merge
+
+    def __eq__(self, other):
         "equality of settings in two FontOptions objects."
-        if not isinstance(other, FontOptions) :
+        if not isinstance(other, FontOptions):
             raise TypeError("can only compare equality with another FontOptions object")
-        #end if
-        return \
-            cairo.cairo_font_options_equal(self._cairobj, other._cairobj)
-    #end __eq__
+        # end if
+        return cairo.cairo_font_options_equal(self._cairobj, other._cairobj)
+
+    # end __eq__
 
     @property
-    def antialias(self) :
+    def antialias(self):
         "antialias mode for this FontOptions, CAIRO.ANTIALIAS_xxx."
-        return \
-            cairo.cairo_font_options_get_antialias(self._cairobj)
-    #end antialias
+        return cairo.cairo_font_options_get_antialias(self._cairobj)
+
+    # end antialias
 
     @antialias.setter
-    def antialias(self, anti) :
+    def antialias(self, anti):
         cairo.cairo_font_options_set_antialias(self._cairobj, anti)
-    #end antialias
+
+    # end antialias
 
     @property
-    def subpixel_order(self) :
+    def subpixel_order(self):
         "subpixel order for this FontOptions, CAIRO.SUBPIXEL_ORDER_xxx."
-        return \
-            cairo.cairo_font_options_get_subpixel_order(self._cairobj)
-    #end subpixel_order
+        return cairo.cairo_font_options_get_subpixel_order(self._cairobj)
+
+    # end subpixel_order
 
     @subpixel_order.setter
-    def subpixel_order(self, sub) :
+    def subpixel_order(self, sub):
         cairo.cairo_font_options_set_subpixel_order(self._cairobj, sub)
-    #end subpixel_order
+
+    # end subpixel_order
 
     @property
-    def hint_style(self) :
+    def hint_style(self):
         "hint style for this FontOptions, CAIRO.HINT_STYLE_xxx."
-        return \
-            cairo.cairo_font_options_get_hint_style(self._cairobj)
-    #end hint_style
+        return cairo.cairo_font_options_get_hint_style(self._cairobj)
+
+    # end hint_style
 
     @hint_style.setter
-    def hint_style(self, hint) :
+    def hint_style(self, hint):
         cairo.cairo_font_options_set_hint_style(self._cairobj, hint)
-    #end hint_style
+
+    # end hint_style
 
     @property
-    def hint_metrics(self) :
+    def hint_metrics(self):
         "hint metrics for this FontOptions, CAIRO.HINT_METRICS_xxx."
-        return \
-            cairo.cairo_font_options_get_hint_metrics(self._cairobj)
-    #end hint_metrics
+        return cairo.cairo_font_options_get_hint_metrics(self._cairobj)
+
+    # end hint_metrics
 
     @hint_metrics.setter
-    def hint_metrics(self, hint) :
+    def hint_metrics(self, hint):
         cairo.cairo_font_options_set_hint_metrics(self._cairobj, hint)
-    #end hint_metrics
 
-    if fontconfig != None :
+    # end hint_metrics
 
+    if fontconfig is not None:
         # <https://www.cairographics.org/manual/cairo-FreeType-Fonts.html#cairo-ft-font-options-substitute>
-        def substitute(self, pattern) :
-            if not isinstance(pattern, fontconfig.Pattern) :
+        def substitute(self, pattern):
+            if not isinstance(pattern, fontconfig.Pattern):
                 raise TypeError("pattern must be a fontconfig.Pattern")
-            #end if
+            # end if
             cairo.cairo_ft_font_options_substitute(pattern._fcobj, self._cairobj)
-        #end substitute
 
-    #end if
+        # end substitute
 
-    def __repr__(self) :
-        return \
-            (
-                "FontOptions.create(%s)"
-            %
-                ", ".join
-                  (
-                    "%s = %d" % (name, getattr(self, name))
-                    for name in self.props
-                  )
-            )
-    #end __repr__
+    # end if
 
-#end FontOptions
+    def __repr__(self):
+        return "FontOptions.create(%s)" % ", ".join(
+            "%s = %d" % (name, getattr(self, name)) for name in self.props
+        )
 
-class FontFace :
+    # end __repr__
+
+
+# end FontOptions
+
+
+class FontFace:
     "a general Cairo font object. Do not instantiate directly; use the create methods."
+
     # <http://cairographics.org/manual/cairo-cairo-font-face-t.html>
 
-    __slots__ = ("_cairobj", "_user_data", "ft_face", "__weakref__") # to forestall typos
+    __slots__ = (
+        "_cairobj",
+        "_user_data",
+        "ft_face",
+        "__weakref__",
+    )  # to forestall typos
 
     _instances = WeakValueDictionary()
     _ud_refs = WeakValueDictionary()
 
-    def _check(self) :
+    def _check(self):
         # check for error from last operation on this FontFace.
         check(cairo.cairo_font_face_status(self._cairobj))
-    #end _check
 
-    def __new__(celf, _cairobj) :
+    # end _check
+
+    def __new__(celf, _cairobj):
         self = celf._instances.get(_cairobj)
-        if self == None :
+        if self is None:
             self = super().__new__(celf)
             self._cairobj = _cairobj
             self._check()
             user_data = celf._ud_refs.get(_cairobj)
-            if user_data == None :
+            if user_data is None:
                 user_data = UserDataDict()
                 celf._ud_refs[_cairobj] = user_data
-            #end if
+            # end if
             self._user_data = user_data
             celf._instances[_cairobj] = self
-        else :
+        else:
             cairo.cairo_font_face_destroy(self._cairobj)
-              # lose extra reference created by caller
-        #end if
-        return \
-            self
-    #end __new__
+            # lose extra reference created by caller
+        # end if
+        return self
 
-    def __del__(self) :
-        if self._cairobj != None :
+    # end __new__
+
+    def __del__(self):
+        if self._cairobj is not None:
             cairo.cairo_font_face_destroy(self._cairobj)
             self._cairobj = None
-        #end if
-    #end __del__
+        # end if
+
+    # end __del__
 
     @property
-    def type(self) :
+    def type(self):
         "the type of font underlying this FontFace, CAIRO.FONT_TYPE_xxx."
-        return \
-            cairo.cairo_font_face_get_type(self._cairobj)
-    #end type
+        return cairo.cairo_font_face_get_type(self._cairobj)
 
-    if freetype2 != None :
+    # end type
+
+    if freetype2 is not None:
 
         @classmethod
-        def create_for_ft_face(celf, face, load_flags = 0) :
+        def create_for_ft_face(celf, face, load_flags=0):
             "creates a FontFace from a freetype2.Face."
-            if not isinstance(face, freetype2.Face) :
+            if not isinstance(face, freetype2.Face):
                 raise TypeError("face must be a freetype2.Face")
-            #end if
-            cairo_face = cairo.cairo_ft_font_face_create_for_ft_face(face._ftobj, load_flags)
+            # end if
+            cairo_face = cairo.cairo_ft_font_face_create_for_ft_face(
+                face._ftobj, load_flags
+            )
             result = celf(cairo_face)
-            if cairo.cairo_font_face_get_user_data(cairo_face, ct.byref(_ft_destroy_key)) == None :
-                check(cairo.cairo_font_face_set_user_data
-                  (
-                    cairo_face,
-                    ct.byref(_ft_destroy_key),
-                    ct.cast(face._ftobj, ct.c_void_p).value,
-                    freetype2.ft.FT_Done_Face
-                  ))
+            if (
+                cairo.cairo_font_face_get_user_data(
+                    cairo_face, ct.byref(_ft_destroy_key)
+                ) is None
+            ):
+                check(
+                    cairo.cairo_font_face_set_user_data(
+                        cairo_face,
+                        ct.byref(_ft_destroy_key),
+                        ct.cast(face._ftobj, ct.c_void_p).value,
+                        freetype2.ft.FT_Done_Face,
+                    )
+                )
                 freetype2.check(freetype2.ft.FT_Reference_Face(face._ftobj))
-                  # need another reference since Cairo has stolen previous one
-                  # not expecting this to fail!
-            #end if
+                # need another reference since Cairo has stolen previous one
+                # not expecting this to fail!
+            # end if
             result.ft_face = face
-            return \
-                result
-        #end create_for_ft_face
+            return result
+
+        # end create_for_ft_face
 
         @classmethod
-        def create_for_file(celf, filename, face_index = 0, load_flags = 0) :
-            "uses FreeType to load a font from the specified filename, and returns" \
-            " a new FontFace for it."
-            return \
-                celf.create_for_ft_face(get_ft_lib().new_face(filename, face_index), load_flags)
-        #end create_for_file
+        def create_for_file(celf, filename, face_index=0, load_flags=0):
+            "uses FreeType to load a font from the specified filename, and returns a new FontFace for it."
+            return celf.create_for_ft_face(
+                get_ft_lib().new_face(filename, face_index), load_flags
+            )
 
-    else :
+        # end create_for_file
+
+    else:
 
         @classmethod
-        def create_for_ft_face(celf, face) :
+        def create_for_ft_face(celf, face):
             "not implemented (requires python_freetype)."
             raise NotImplementedError("requires python_freetype")
-        #end create_for_ft_face
+
+        # end create_for_ft_face
 
         @classmethod
-        def create_for_file(celf, filename, face_index = 0, load_flags = 0) :
-            "uses FreeType to load a font from the specified filename, and returns" \
-            " a new FontFace for it."
+        def create_for_file(celf, filename, face_index=0, load_flags=0):
+            "uses FreeType to load a font from the specified filename, and returns a new FontFace for it."
             _ensure_ft()
             ft_face = ct.c_void_p()
-            status = _ft.FT_New_Face(ct.c_void_p(_ft_lib), filename.encode("utf-8"), face_index, ct.byref(ft_face))
-            if status != 0 :
+            status = _ft.FT_New_Face(
+                ct.c_void_p(_ft_lib),
+                filename.encode("utf-8"),
+                face_index,
+                ct.byref(ft_face),
+            )
+            if status != 0:
                 raise RuntimeError("Error %d loading FreeType font" % status)
-            #end if
-            try :
-                cairo_face = cairo.cairo_ft_font_face_create_for_ft_face(ft_face.value, load_flags)
+            # end if
+            try:
+                cairo_face = cairo.cairo_ft_font_face_create_for_ft_face(
+                    ft_face.value, load_flags
+                )
                 result = celf(cairo_face)
-                check(cairo.cairo_font_face_set_user_data
-                  (
-                    cairo_face,
-                    ct.byref(_ft_destroy_key),
-                    ft_face.value,
-                    _ft.FT_Done_Face
-                  ))
-                ft_face = None # so I don't free it yet
-            finally :
-                if ft_face != None :
+                check(
+                    cairo.cairo_font_face_set_user_data(
+                        cairo_face,
+                        ct.byref(_ft_destroy_key),
+                        ft_face.value,
+                        _ft.FT_Done_Face,
+                    )
+                )
+                ft_face = None  # so I don't free it yet
+            finally:
+                if ft_face is not None:
                     _ft.FT_Done_Face(ft_face)
-                #end if
-            #end try
-            return \
-                result
-        #end create_for_file
+                # end if
+            # end try
+            return result
 
-    #end if freetype2 != None
+        # end create_for_file
 
-    if fontconfig != None :
+    # end if freetype2 != None
+
+    if fontconfig is not None:
 
         @classmethod
-        def create_for_pattern(celf, pattern, options = None, config = None) :
-            "uses Fontconfig to find a font matching the specified pattern string," \
-            " uses FreeType to load the font, and returns a new FontFace for it." \
-            " options, if present, must be a FontOptions object."
+        def create_for_pattern(celf, pattern, options=None, config=None):
+            "uses Fontconfig to find a font matching the specified pattern string, uses FreeType to load the font, and returns a new FontFace for it. options, if present, must be a FontOptions object."
             _ensure_ft()
-            if pattern != None and not isinstance(pattern, (fontconfig.Pattern, str)) :
-                raise TypeError("options must be a pattern string or fontconfig.Pattern")
-            #end if
-            if options != None and not isinstance(options, FontOptions) :
+            if pattern is not None and not isinstance(pattern, (fontconfig.Pattern, str)):
+                raise TypeError(
+                    "options must be a pattern string or fontconfig.Pattern"
+                )
+            # end if
+            if options is not None and not isinstance(options, FontOptions):
                 raise TypeError("options must be a FontOptions")
-            #end if
-            if config != None and not isinstance(config, fontconfig.Config) :
+            # end if
+            if config is not None and not isinstance(config, fontconfig.Config):
                 raise TypeError("config must be a fontconfig.Config")
-            #end if
-            if isinstance(pattern, fontconfig.Pattern) :
+            # end if
+            if isinstance(pattern, fontconfig.Pattern):
                 search_pattern = pattern.duplicate()
-            else :
+            else:
                 search_pattern = fontconfig.Pattern.name_parse(pattern)
-                if search_pattern == None :
+                if search_pattern is None:
                     raise RuntimeError("cannot parse Fontconfig name pattern")
-                #end if
-            #end if
-            if config == None :
+                # end if
+            # end if
+            if config is None:
                 config = fontconfig.Config.get_current()
-            #end if
+            # end if
             config.substitute(search_pattern, fontconfig.FC.MatchPattern)
-            if options != None :
+            if options is not None:
                 options.substitute(search_pattern)
-            #end if
+            # end if
             search_pattern.default_substitute()
             found_pattern, match_result = config.font_match(search_pattern)
-            if found_pattern == None or match_result != fontconfig.FC.ResultMatch :
+            if found_pattern is None or match_result != fontconfig.FC.ResultMatch:
                 raise RuntimeError("Fontconfig cannot match font name")
-            #end if
-            cairo_face = cairo.cairo_ft_font_face_create_for_pattern(found_pattern._fcobj)
-            return \
-                celf(cairo_face)
-        #end create_for_pattern
+            # end if
+            cairo_face = cairo.cairo_ft_font_face_create_for_pattern(
+                found_pattern._fcobj
+            )
+            return celf(cairo_face)
 
-    else :
+        # end create_for_pattern
+
+    else:
 
         @classmethod
-        def create_for_pattern(celf, pattern, options = None) :
-            "uses Fontconfig to find a font matching the specified pattern string," \
-            " uses FreeType to load the font, and returns a new FontFace for it." \
-            " options, if present, must be a FontOptions object."
+        def create_for_pattern(celf, pattern, options=None):
+            "uses Fontconfig to find a font matching the specified pattern string, uses FreeType to load the font, and returns a new FontFace for it. options, if present, must be a FontOptions object."
             _ensure_ft()
             _ensure_fc()
-            if options != None and not isinstance(options, FontOptions) :
+            if options is not None and not isinstance(options, FontOptions):
                 raise TypeError("options must be a FontOptions")
-            #end if
-            with _FcPatternManager() as patterns :
-                search_pattern = patterns.collect(_fc.FcNameParse(pattern.encode("utf-8")))
-                if search_pattern == None :
+            # end if
+            with _FcPatternManager() as patterns:
+                search_pattern = patterns.collect(
+                    _fc.FcNameParse(pattern.encode("utf-8"))
+                )
+                if search_pattern is None:
                     raise RuntimeError("cannot parse Fontconfig name pattern")
-                #end if
-                if not _fc.FcConfigSubstitute(None, search_pattern, _FC.FcMatchPattern) :
+                # end if
+                if not _fc.FcConfigSubstitute(None, search_pattern, _FC.FcMatchPattern):
                     raise RuntimeError("cannot substitute Fontconfig configuration")
-                #end if
-                if options != None :
-                    cairo.cairo_ft_font_options_substitute(search_pattern, options._cairobj)
-                #end if
+                # end if
+                if options is not None:
+                    cairo.cairo_ft_font_options_substitute(
+                        search_pattern, options._cairobj
+                    )
+                # end if
                 _fc.FcDefaultSubstitute(search_pattern)
                 match_result = ct.c_int()
-                found_pattern = patterns.collect(_fc.FcFontMatch(None, search_pattern, ct.byref(match_result)))
-                if found_pattern == None or match_result.value != _FC.FcResultMatch :
+                found_pattern = patterns.collect(
+                    _fc.FcFontMatch(None, search_pattern, ct.byref(match_result))
+                )
+                if found_pattern is None or match_result.value != _FC.FcResultMatch:
                     raise RuntimeError("Fontconfig cannot match font name")
-                #end if
+                # end if
                 cairo_face = cairo.cairo_ft_font_face_create_for_pattern(found_pattern)
-            #end with
-            return \
-                celf(cairo_face)
-        #end create_for_pattern
+            # end with
+            return celf(cairo_face)
 
-    #end if
+        # end create_for_pattern
+
+    # end if
 
     @property
-    def ft_synthesize(self) :
-        "the bold/italic synthesize flags for the font, CAIRO.FT_SYNTHESIZE_xxx" \
-        " (FreeType fonts only)."
-        return \
-            cairo.cairo_ft_font_face_get_synthesize(self._cairobj)
-    #end ft_synthesize
+    def ft_synthesize(self):
+        "the bold/italic synthesize flags for the font, CAIRO.FT_SYNTHESIZE_xxx (FreeType fonts only)."
+        return cairo.cairo_ft_font_face_get_synthesize(self._cairobj)
+
+    # end ft_synthesize
 
     @ft_synthesize.setter
-    def ft_synthesize(self, synth_flags) :
+    def ft_synthesize(self, synth_flags):
         self.ft_unset_synthesize(~synth_flags).ft_set_synthesize(synth_flags)
-    #end ft_synthesize
 
-    def ft_set_synthesize(self, synth_flags) :
-        "sets the specified bits in the bold/italic synthesize flags for the font," \
-        " CAIRO.FT_SYNTHESIZE_xxx (FreeType fonts only)."
+    # end ft_synthesize
+
+    def ft_set_synthesize(self, synth_flags):
+        "sets the specified bits in the bold/italic synthesize flags for the font, CAIRO.FT_SYNTHESIZE_xxx (FreeType fonts only)."
         cairo.cairo_ft_font_face_set_synthesize(self._cairobj, synth_flags)
-        return \
-            self
-    #end ft_set_synthesize
+        return self
 
-    def ft_unset_synthesize(self, synth_flags) :
-        "clears the specified bits in the bold/italic synthesize flags for the font," \
-        " CAIRO.FT_SYNTHESIZE_xxx (FreeType fonts only)."
+    # end ft_set_synthesize
+
+    def ft_unset_synthesize(self, synth_flags):
+        "clears the specified bits in the bold/italic synthesize flags for the font, CAIRO.FT_SYNTHESIZE_xxx (FreeType fonts only)."
         cairo.cairo_ft_font_face_unset_synthesize(self._cairobj, synth_flags)
-        return \
-            self
-    #end ft_unset_synthesize
+        return self
+
+    # end ft_unset_synthesize
 
     @property
-    def user_data(self) :
+    def user_data(self):
         "a dict, initially empty, which may be used by caller for any purpose."
-        return \
-            self._user_data
-    #end user_data
+        return self._user_data
+
+    # end user_data
 
     # Cairo user_data not exposed to caller, probably not useful
 
     # toy font face functions from <http://cairographics.org/manual/cairo-text.html>
 
     @classmethod
-    def toy_create(celf, family, slant, weight) :
+    def toy_create(celf, family, slant, weight):
         "creates a “toy” FontFace."
-        return \
-            celf(cairo.cairo_toy_font_face_create(family.encode("utf-8"), slant, weight))
-    #end toy_create
+        return celf(
+            cairo.cairo_toy_font_face_create(family.encode("utf-8"), slant, weight)
+        )
+
+    # end toy_create
 
     @property
-    def toy_family(self) :
+    def toy_family(self):
         "the family name (only for “toy” fonts)"
         result = cairo.cairo_toy_font_face_get_family(self._cairobj)
         self._check()
-        return \
-            result.decode("utf-8")
-    #end toy_family
+        return result.decode("utf-8")
+
+    # end toy_family
 
     @property
-    def toy_slant(self) :
+    def toy_slant(self):
         "the slant setting (only for “toy” fonts)"
         result = cairo.cairo_toy_font_face_get_slant(self._cairobj)
         self._check()
-        return \
-            result
-    #end toy_slant
+        return result
+
+    # end toy_slant
 
     @property
-    def toy_weight(self) :
+    def toy_weight(self):
         "the weight setting (only for “toy” fonts)"
         result = cairo.cairo_toy_font_face_get_weight(self._cairobj)
         self._check()
-        return \
-            result
-    #end toy
+        return result
 
-#end FontFace
+    # end toy
 
-class ScaledFont :
-    "a representation of a Cairo scaled_font_t, which is a font with particular" \
-    " size and option settings. Do not instantiate directly; use the create method," \
-    " or get one from Context.scaled_font."
 
-    __slots__ = ("_cairobj", "_user_data", "__weakref__") # to forestall typos
+# end FontFace
+
+
+class ScaledFont:
+    "a representation of a Cairo scaled_font_t, which is a font with particular size and option settings. Do not instantiate directly; use the create method, or get one from Context.scaled_font."
+
+    __slots__ = ("_cairobj", "_user_data", "__weakref__")  # to forestall typos
 
     _instances = WeakValueDictionary()
     _ud_refs = WeakValueDictionary()
 
-    def _check(self) :
+    def _check(self):
         # check for error from last operation on this ScaledFont.
         check(cairo.cairo_scaled_font_status(self._cairobj))
-    #end _check
 
-    def __new__(celf, _cairobj) :
+    # end _check
+
+    def __new__(celf, _cairobj):
         self = celf._instances.get(_cairobj)
-        if self == None :
+        if self is None:
             self = super().__new__(celf)
             self._cairobj = _cairobj
             self._check()
             user_data = celf._ud_refs.get(_cairobj)
-            if user_data == None :
+            if user_data is None:
                 user_data = UserDataDict()
                 celf._ud_refs[_cairobj] = user_data
-            #end if
+            # end if
             self._user_data = user_data
             celf._instances[_cairobj] = self
-        else :
+        else:
             cairo.cairo_scaled_font_destroy(self._cairobj)
-              # lose extra reference created by caller
-        #end if
-        return \
-            self
-    #end __new__
+            # lose extra reference created by caller
+        # end if
+        return self
 
-    def __del__(self) :
-        if self._cairobj != None :
+    # end __new__
+
+    def __del__(self):
+        if self._cairobj is not None:
             cairo.cairo_scaled_font_destroy(self._cairobj)
             self._cairobj = None
-        #end if
-    #end __del__
+        # end if
+
+    # end __del__
 
     @classmethod
-    def create(celf, font_face, font_matrix, ctm, options) :
-        "creates a ScaledFont from the specified FontFace, Matrix font_matrix" \
-        " and ctm, and FontOptions options."
+    def create(celf, font_face, font_matrix, ctm, options):
+        "creates a ScaledFont from the specified FontFace, Matrix font_matrix and ctm, and FontOptions options."
         # Q: Are any of these optional?
         # A: Looking at Cairo source file src/cairo-scaled-font.c, No.
-        if not isinstance(font_face, FontFace) :
+        if not isinstance(font_face, FontFace):
             raise TypeError("font_face must be a FontFace")
-        #end if
-        if not isinstance(font_matrix, Matrix) or not isinstance(ctm, Matrix) :
+        # end if
+        if not isinstance(font_matrix, Matrix) or not isinstance(ctm, Matrix):
             raise TypeError("font_matrix and ctm must be Matrix objects")
-        #end if
-        if not isinstance(options, FontOptions) :
+        # end if
+        if not isinstance(options, FontOptions):
             raise TypeError("options must be a FontOptions")
-        #end if
+        # end if
         font_matrix = font_matrix.to_cairo()
         ctm = ctm.to_cairo()
-        return \
-            celf(cairo.cairo_scaled_font_create(font_face._cairobj, ct.byref(font_matrix), ct.byref(ctm), options._cairobj))
-    #end create
+        return celf(
+            cairo.cairo_scaled_font_create(
+                font_face._cairobj,
+                ct.byref(font_matrix),
+                ct.byref(ctm),
+                options._cairobj,
+            )
+        )
+
+    # end create
 
     @property
-    def font_extents(self) :
+    def font_extents(self):
         "returns a FontExtents object giving information about the font settings."
         result = CAIRO.font_extents_t()
         cairo.cairo_scaled_font_extents(self._cairobj, ct.byref(result))
-        return \
-            FontExtents.from_cairo(result)
-    #end font_extents
+        return FontExtents.from_cairo(result)
 
-    def text_extents(self, text) :
-        "returns a TextExtents object giving information about drawing the" \
-        " specified text at the font settings."
+    # end font_extents
+
+    def text_extents(self, text):
+        "returns a TextExtents object giving information about drawing the specified text at the font settings."
         result = CAIRO.text_extents_t()
-        cairo.cairo_scaled_font_text_extents(self._cairobj, text.encode("utf-8"), ct.byref(result))
-        return \
-            TextExtents.from_cairo(result)
-    #end text_extents
+        cairo.cairo_scaled_font_text_extents(
+            self._cairobj, text.encode("utf-8"), ct.byref(result)
+        )
+        return TextExtents.from_cairo(result)
 
-    def glyph_extents(self, glyphs) :
-        "returns a TextExtents object giving information about drawing the" \
-        " specified glyphs at the font settings."
+    # end text_extents
+
+    def glyph_extents(self, glyphs):
+        "returns a TextExtents object giving information about drawing the specified glyphs at the font settings."
         buf, nr_glyphs = glyphs_to_cairo(glyphs)
         result = CAIRO.text_extents_t()
-        cairo.cairo_scaled_font_glyph_extents(self._cairobj, buf, nr_glyphs, ct.byref(result))
-        return \
-            TextExtents.from_cairo(result)
-    #end glyph_extents
+        cairo.cairo_scaled_font_glyph_extents(
+            self._cairobj, buf, nr_glyphs, ct.byref(result)
+        )
+        return TextExtents.from_cairo(result)
+
+    # end glyph_extents
 
     @property
-    def font_face(self) :
+    def font_face(self):
         "the FontFace from which this ScaledFont was created."
-        return \
-            FontFace(cairo.cairo_font_face_reference(cairo.cairo_scaled_font_get_font_face(self._cairobj)))
-    #end font_face
+        return FontFace(
+            cairo.cairo_font_face_reference(
+                cairo.cairo_scaled_font_get_font_face(self._cairobj)
+            )
+        )
 
-    def text_to_glyphs(self, pos, text, cluster_mapping = False) :
-        "converts text (which can be a Unicode string or utf-8-encoded bytes) to an" \
-        " array of glyphs, optionally including cluster mapping information." \
-        " If not cluster_mapping, then the result will be a tuple of" \
-        " a single element, being a tuple of Glyph objects. If cluster_mapping, then" \
-        " the result tuple will have three elements, the first being the tuple of Glyphs" \
-        " as before, the second being a tuple of (nr_chars/nr_bytes, nr_glyphs) tuples," \
-        " and the third being the cluster_flags, of which only CAIRO.TEXT_CLUSTER_FLAG_BACKWARD" \
-        " is currently defined; this indicates that the numbers of glyphs in the clusters" \
-        " count from the end of the Glyphs array, not from the start."
+    # end font_face
+
+    def text_to_glyphs(self, pos, text, cluster_mapping=False):
+        "converts text (which can be a Unicode string or utf-8-encoded bytes) to an array of glyphs, optionally including cluster mapping information. If not cluster_mapping, then the result will be a tuple of a single element, being a tuple of Glyph objects. If cluster_mapping, then the result tuple will have three elements, the first being the tuple of Glyphs as before, the second being a tuple of (nr_chars/nr_bytes, nr_glyphs) tuples, and the third being the cluster_flags, of which only CAIRO.TEXT_CLUSTER_FLAG_BACKWARD is currently defined; this indicates that the numbers of glyphs in the clusters count from the end of the Glyphs array, not from the start."
         pos = Vector.from_tuple(pos)
         encode = not isinstance(text, bytes)
-        if encode :
+        if encode:
             c_text = text.encode("utf-8")
-        else :
+        else:
             c_text = text
-        #end if
+        # end if
         c_glyphs = CAIRO.glyph_ptr_t()
         num_glyphs = ct.c_int(0)
-        if cluster_mapping :
+        if cluster_mapping:
             clusters_ptr = ct.pointer(CAIRO.cluster_ptr_t())
             num_clusters = ct.pointer(ct.c_int(0))
             cluster_flags = ct.pointer(ct.c_uint())
-        else :
+        else:
             clusters_ptr = None
             num_clusters = None
             cluster_flags = None
-        #end if
-        check(cairo.cairo_scaled_font_text_to_glyphs(self._cairobj, pos.x, pos.y, c_text, len(c_text), ct.byref(c_glyphs), ct.byref(num_glyphs), clusters_ptr, num_clusters, cluster_flags))
-        result = \
-            (
-                tuple
-                  (
-                    Glyph(g.index, Vector(g.x, g.y))
-                    for i in range(num_glyphs.value)
-                    for g in (c_glyphs[i],)
-                  ),
+        # end if
+        check(
+            cairo.cairo_scaled_font_text_to_glyphs(
+                self._cairobj,
+                pos.x,
+                pos.y,
+                c_text,
+                len(c_text),
+                ct.byref(c_glyphs),
+                ct.byref(num_glyphs),
+                clusters_ptr,
+                num_clusters,
+                cluster_flags,
             )
-        if cluster_mapping :
+        )
+        result = (
+            tuple(
+                Glyph(g.index, Vector(g.x, g.y))
+                for i in range(num_glyphs.value)
+                for g in (c_glyphs[i],)
+            ),
+        )
+        if cluster_mapping:
             c_clusters = clusters_ptr.contents
             num_clusters = num_clusters.contents.value
             cluster_flags = cluster_flags.contents.value
-            if encode :
+            if encode:
                 clusters = []
                 pos = 0
-                for i in range(num_clusters) :
+                for i in range(num_clusters):
                     # convert cluster num_bytes to cluster num_chars
                     next_pos = pos + c_clusters[i].num_bytes
-                    clusters.append \
-                      (
-                        (len(c_text[pos:next_pos].decode("utf-8")), c_clusters[i].num_glyphs)
-                      )
+                    clusters.append(
+                        (
+                            len(c_text[pos:next_pos].decode("utf-8")),
+                            c_clusters[i].num_glyphs,
+                        )
+                    )
                     pos = next_pos
-                #end for
+                # end for
                 clusters = tuple(clusters)
-            else :
-                clusters = tuple \
-                  (
+            else:
+                clusters = tuple(
                     (c.num_bytes, c.num_glyphs)
                     for i in range(num_clusters)
                     for c in (c_clusters[i],)
-                  )
-            #end if
+                )
+            # end if
             result += (clusters, cluster_flags)
             cairo.cairo_text_cluster_free(clusters_ptr.contents)
-        #end if
+        # end if
         cairo.cairo_glyph_free(c_glyphs)
-        return \
-            result
-    #end text_to_glyphs
+        return result
+
+    # end text_to_glyphs
 
     @property
-    def font_options(self) :
+    def font_options(self):
         "a copy of the font options."
         result = FontOptions.create()
         cairo.cairo_scaled_font_get_font_options(self._cairobj, result._cairobj)
-        return \
-            result
-    #end font_options
+        return result
+
+    # end font_options
 
     @property
-    def font_matrix(self) :
+    def font_matrix(self):
         "the font matrix."
         result = CAIRO.matrix_t()
         cairo.cairo_scaled_font_get_font_matrix(self._cairobj, ct.byref(result))
-        return \
-            Matrix.from_cairo(result)
-    #end font_matrix
+        return Matrix.from_cairo(result)
+
+    # end font_matrix
 
     @property
-    def ctm(self) :
+    def ctm(self):
         "the transformation matrix."
         result = CAIRO.matrix_t()
         cairo.cairo_scaled_font_get_ctm(self._cairobj, ct.byref(result))
-        return \
-            Matrix.from_cairo(result)
-    #end ctm
+        return Matrix.from_cairo(result)
+
+    # end ctm
 
     @property
-    def scale_matrix(self) :
+    def scale_matrix(self):
         "the scale matrix."
         result = CAIRO.matrix_t()
         cairo.cairo_scaled_font_get_scale_matrix(self._cairobj, ct.byref(result))
-        return \
-            Matrix.from_cairo(result)
-    #end scale_matrix
+        return Matrix.from_cairo(result)
+
+    # end scale_matrix
 
     @property
-    def type(self) :
-        "the type of font underlying this ScaledFont, CAIRO.FONT_TYPE_xxx other" \
-        " than FONT_TYPE_TOY."
-        return \
-            cairo.cairo_scaled_font_get_type(self._cairobj)
-    #end type
+    def type(self):
+        "the type of font underlying this ScaledFont, CAIRO.FONT_TYPE_xxx other than FONT_TYPE_TOY."
+        return cairo.cairo_scaled_font_get_type(self._cairobj)
+
+    # end type
 
     @property
-    def user_data(self) :
+    def user_data(self):
         "a dict, initially empty, which may be used by caller for any purpose."
-        return \
-            self._user_data
-    #end user_data
+        return self._user_data
+
+    # end user_data
 
     # Cairo user_data not exposed to caller, probably not useful
 
-    if freetype2 != None :
-
+    if freetype2 is not None:
         # <https://www.cairographics.org/manual/cairo-FreeType-Fonts.html>
 
-        def lock_face(self) :
+        def lock_face(self):
             ft_face = cairo.cairo_ft_scaled_font_lock_face(self._cairobj)
             self._check()
-            return \
-                freetype2.Face(lib = get_ft_lib(), face = ft_face, filename = None)
-        #end lock_face
+            return freetype2.Face(lib=get_ft_lib(), face=ft_face, filename=None)
 
-        def unlock_face(self) :
+        # end lock_face
+
+        def unlock_face(self):
             cairo.cairo_ft_scaled_font_unlock_face(self._cairobj)
             self._check()
-        #end unlock_face
 
-    #end if
+        # end unlock_face
 
-#end ScaledFont
+    # end if
 
-class UserFontFace(FontFace) :
-    "font support with data provided by the user. Do not instantiate directly; use" \
-    " the create method. You supply up to four callbacks (only one of which is required)" \
-    " that define the behaviour of the font: init_func, render_glyph_func (required)," \
-    " text_to_glyphs_func and unicode_to_glyph_func."
 
-    __slots__ = \
-        (
-            "_init_func",
-            "_render_glyph_func",
-            "_text_to_glyphs_func",
-            "_unicode_to_glyph_func",
-            "pass_unicode",
-            # need to keep references to ctypes-wrapped functions
-            # so they don't disappear prematurely:
-            "_wrap_init_func",
-            "_wrap_render_glyph_func",
-            "_wrap_text_to_glyphs_func",
-            "_wrap_unicode_to_glyph_func",
-        ) # to forestall typos
+# end ScaledFont
+
+
+class UserFontFace(FontFace):
+    "font support with data provided by the user. Do not instantiate directly; use the create method. You supply up to four callbacks (only one of which is required) that define the behaviour of the font: init_func, render_glyph_func (required), text_to_glyphs_func and unicode_to_glyph_func."
+
+    __slots__ = (
+        "_init_func",
+        "_render_glyph_func",
+        "_text_to_glyphs_func",
+        "_unicode_to_glyph_func",
+        "pass_unicode",
+        # need to keep references to ctypes-wrapped functions
+        # so they don't disappear prematurely:
+        "_wrap_init_func",
+        "_wrap_render_glyph_func",
+        "_wrap_text_to_glyphs_func",
+        "_wrap_unicode_to_glyph_func",
+    )  # to forestall typos
 
     @classmethod
-    def create \
-      (
+    def create(
         celf,
-        init_func = None,
-        render_glyph_func = None,
-        text_to_glyphs_func = None,
-        unicode_to_glyph_func = None,
-      ) :
-        "creates a new UserFontFace. You can specify callbacks here, or later, via assignment" \
-        " to the properties or using the set_xxx methods."
+        init_func=None,
+        render_glyph_func=None,
+        text_to_glyphs_func=None,
+        unicode_to_glyph_func=None,
+    ):
+        "creates a new UserFontFace. You can specify callbacks here, or later, via assignment to the properties or using the set_xxx methods."
         result = celf(cairo.cairo_user_font_face_create())
         result._init_func = None
         result._render_glyph_func = None
@@ -6879,517 +7265,502 @@ class UserFontFace(FontFace) :
         result._wrap_render_glyph_func = None
         result._wrap_text_to_glyphs_func = None
         result._wrap_unicode_to_glyph_func = None
-        if init_func != None :
+        if init_func is not None:
             result.set_init_func(init_func)
-        #end if
-        if render_glyph_func != None :
+        # end if
+        if render_glyph_func is not None:
             result.set_render_glyph_func(render_glyph_func)
-        #end if
-        if text_to_glyphs_func != None :
+        # end if
+        if text_to_glyphs_func is not None:
             result.set_text_to_glyphs_func(text_to_glyphs_func)
-        #end if
-        if unicode_to_glyph_func != None :
+        # end if
+        if unicode_to_glyph_func is not None:
             result.set_unicode_to_glyph_func(unicode_to_glyph_func)
-        #end if
-        return \
-            result
-    #end create
+        # end if
+        return result
+
+    # end create
 
     @property
-    def init_func(self) :
-        "the current init_func, invoked as follows:\n" \
-        "\n" \
-        "    status = init_func(scaled_font : ScaledFont, ctx : Context, font_extents : FontExtents)\n" \
-        "\n" \
-        "Mainly, this should set fields in the font_extents to define the metrics of the font.\n" \
-        "This callback is optional."
-        return \
-            self._init_func
-    #end init_func
+    def init_func(self):
+        "the current init_func, invoked as follows:\n\n    status = init_func(scaled_font : ScaledFont, ctx : Context, font_extents : FontExtents)\n\nMainly, this should set fields in the font_extents to define the metrics of the font.\nThis callback is optional."
+        return self._init_func
+
+    # end init_func
 
     @init_func.setter
-    def init_func(self, init) :
+    def init_func(self, init):
         self.set_init_func(init)
-    #end init_func
 
-    def set_init_func(self, init) :
-        "sets a new value for the init_func. Useful for method chaining; otherwise just" \
-        " assign to the init_func property."
-        temp = self._wrap_init_func # so the old value doesn't disappear until it's no longer needed
-        if init != None :
-            def wrap_init_func(c_scaled_font, c_ctx, c_font_extents) :
-                scaled_font = ScaledFont(cairo.cairo_scaled_font_reference(c_scaled_font))
+    # end init_func
+
+    def set_init_func(self, init):
+        "sets a new value for the init_func. Useful for method chaining; otherwise just assign to the init_func property."
+        if init is not None:
+
+            def wrap_init_func(c_scaled_font, c_ctx, c_font_extents):
+                scaled_font = ScaledFont(
+                    cairo.cairo_scaled_font_reference(c_scaled_font)
+                )
                 ctx = Context(cairo.cairo_reference(cairo.cairo_reference(c_ctx)))
                 font_extents = FontExtents.from_cairo(c_font_extents.contents)
                 status = init(scaled_font, ctx, font_extents)
-                for f, _ in CAIRO.font_extents_t._fields_ :
+                for f, _ in CAIRO.font_extents_t._fields_:
                     # return any changes made by user to caller
                     setattr(c_font_extents.contents, f, getattr(font_extents, f))
-                #end for
-                return \
-                    status
-            #end wrap_init_func
+                # end for
+                return status
+
+            # end wrap_init_func
             self._wrap_init_func = CAIRO.user_scaled_font_init_func_t(wrap_init_func)
-        else :
+        else:
             self._wrap_init_func = None
-        #end if
+        # end if
         cairo.cairo_user_font_face_set_init_func(self._cairobj, self._wrap_init_func)
         self._init_func = init
-        return \
-            self
-    #end set_init_func
+        return self
+
+    # end set_init_func
 
     @property
-    def render_glyph_func(self) :
-        "the current render_glyph_func, invoked as follows\n" \
-        "\n" \
-        "    status = render_glyph_func(scaled_font : ScaledFont, glyph : int, ctx : Context, text_extents : TextExtents)\n" \
-        "\n" \
-        " where glyph is the index of the glyph to render, ctx is the Context into which to" \
-        " render the glyph, and text_extents can be adjusted to return the metrics of" \
-        " the glyph.\n" \
-        "This callback is mandatory."
-        return \
-            self._render_glyph_func
-    #end render_glyph_func
+    def render_glyph_func(self):
+        "the current render_glyph_func, invoked as follows\n\n    status = render_glyph_func(scaled_font : ScaledFont, glyph : int, ctx : Context, text_extents : TextExtents)\n\n where glyph is the index of the glyph to render, ctx is the Context into which to render the glyph, and text_extents can be adjusted to return the metrics of the glyph.\nThis callback is mandatory."
+        return self._render_glyph_func
+
+    # end render_glyph_func
 
     @render_glyph_func.setter
-    def render_glyph_func(self, render_glyph) :
+    def render_glyph_func(self, render_glyph):
         self.set_render_glyph_func(render_glyph)
-    #end render_glyph_func
 
-    def set_render_glyph_func(self, render_glyph) :
-        "sets a new value for the render_glyph_func. Useful for method chaining; otherwise just" \
-        " assign to the render_glyph_func property."
-        temp = self._wrap_render_glyph_func # so the old value doesn't disappear until it's no longer needed
-        if render_glyph != None :
-            def wrap_render_glyph_func(c_scaled_font, glyph, c_ctx, c_text_extents) :
-                scaled_font = ScaledFont(cairo.cairo_scaled_font_reference(c_scaled_font))
+    # end render_glyph_func
+
+    def set_render_glyph_func(self, render_glyph):
+        "sets a new value for the render_glyph_func. Useful for method chaining; otherwise just assign to the render_glyph_func property."
+        if render_glyph is not None:
+
+            def wrap_render_glyph_func(c_scaled_font, glyph, c_ctx, c_text_extents):
+                scaled_font = ScaledFont(
+                    cairo.cairo_scaled_font_reference(c_scaled_font)
+                )
                 ctx = Context(cairo.cairo_reference(cairo.cairo_reference(c_ctx)))
                 text_extents = TextExtents.from_cairo(c_text_extents.contents)
                 status = render_glyph(scaled_font, glyph, ctx, text_extents)
-                for f, _ in CAIRO.text_extents_t._fields_ :
+                for f, _ in CAIRO.text_extents_t._fields_:
                     # return any changes made by user to caller
                     setattr(c_text_extents.contents, f, getattr(text_extents, f))
-                #end for
-                return \
-                    status
-            #end wrap_render_glyph_func
-            self._wrap_render_glyph_func = CAIRO.user_scaled_font_render_glyph_func_t(wrap_render_glyph_func)
-        else :
+                # end for
+                return status
+
+            # end wrap_render_glyph_func
+            self._wrap_render_glyph_func = CAIRO.user_scaled_font_render_glyph_func_t(
+                wrap_render_glyph_func
+            )
+        else:
             self._wrap_render_glyph_func = None
-        #end if
-        cairo.cairo_user_font_face_set_render_glyph_func(self._cairobj, self._wrap_render_glyph_func)
+        # end if
+        cairo.cairo_user_font_face_set_render_glyph_func(
+            self._cairobj, self._wrap_render_glyph_func
+        )
         self._render_glyph_func = render_glyph
-        return \
-            self
-    #end set_render_glyph_func
+        return self
+
+    # end set_render_glyph_func
 
     @property
-    def unicode_to_glyph_func(self) :
-        "the current unicode_to_glyph_func, invoked as follows:\n" \
-        "\n" \
-        "    status, glyph_index = unicode_to_glyph_func(scaled_font : ScaledFont, unicode : int)\n" \
-        "\n" \
-        "where it is expected to return the glyph code corresponding to the character code," \
-        " along with a status.\n" \
-        "This callback is optional, and is only used if a text_to_glyphs_func is not specified." \
-        " If neither is specified, then Unicode character codes are directly interpreted as" \
-        " glyph codes."
-        return \
-            self._unicode_to_glyph_func
-    #end unicode_to_glyph_func
+    def unicode_to_glyph_func(self):
+        "the current unicode_to_glyph_func, invoked as follows:\n\n    status, glyph_index = unicode_to_glyph_func(scaled_font : ScaledFont, unicode : int)\n\nwhere it is expected to return the glyph code corresponding to the character code, along with a status.\nThis callback is optional, and is only used if a text_to_glyphs_func is not specified. If neither is specified, then Unicode character codes are directly interpreted as glyph codes."
+        return self._unicode_to_glyph_func
+
+    # end unicode_to_glyph_func
 
     @unicode_to_glyph_func.setter
-    def unicode_to_glyph_func(self, unicode_to_glyph) :
+    def unicode_to_glyph_func(self, unicode_to_glyph):
         self.set_unicode_to_glyph_func(unicode_to_glyph)
-    #end unicode_to_glyph_func
 
-    def set_unicode_to_glyph_func(self, unicode_to_glyph) :
-        "sets a new value for the unicode_to_glyph_func. Useful for method chaining; otherwise" \
-        " just assign to the unicode_to_glyph_func property."
-        temp = self._wrap_unicode_to_glyph_func # so the old value doesn't disappear until it's no longer needed
-        if unicode_to_glyph != None :
-            def wrap_unicode_to_glyph_func(c_scaled_font, unicode, c_glyph_index) :
-                scaled_font = ScaledFont(cairo.cairo_scaled_font_reference(c_scaled_font))
+    # end unicode_to_glyph_func
+
+    def set_unicode_to_glyph_func(self, unicode_to_glyph):
+        "sets a new value for the unicode_to_glyph_func. Useful for method chaining; otherwise just assign to the unicode_to_glyph_func property."
+        if unicode_to_glyph is not None:
+
+            def wrap_unicode_to_glyph_func(c_scaled_font, unicode, c_glyph_index):
+                scaled_font = ScaledFont(
+                    cairo.cairo_scaled_font_reference(c_scaled_font)
+                )
                 status, glyph_index = unicode_to_glyph(scaled_font, unicode)
-                if glyph_index != None :
+                if glyph_index is not None:
                     c_glyph_index.contents.value = glyph_index
-                #end if
-                return \
-                    status
-            #end wrap_unicode_to_glyph_func
-            self._wrap_unicode_to_glyph_func = CAIRO.user_scaled_font_unicode_to_glyph_func_t(wrap_unicode_to_glyph_func)
-        else :
+                # end if
+                return status
+
+            # end wrap_unicode_to_glyph_func
+            self._wrap_unicode_to_glyph_func = (
+                CAIRO.user_scaled_font_unicode_to_glyph_func_t(
+                    wrap_unicode_to_glyph_func
+                )
+            )
+        else:
             self._wrap_unicode_to_glyph_func = None
-        #end if
-        cairo.cairo_user_font_face_set_unicode_to_glyph_func(self._cairobj, self._wrap_unicode_to_glyph_func)
+        # end if
+        cairo.cairo_user_font_face_set_unicode_to_glyph_func(
+            self._cairobj, self._wrap_unicode_to_glyph_func
+        )
         self._unicode_to_glyph_func = unicode_to_glyph
-        return \
-            self
-    #end set_unicode_to_glyph_func
+        return self
+
+    # end set_unicode_to_glyph_func
 
     @property
-    def text_to_glyphs_func(self) :
-        "the current text_to_glyphs_func, invoked as follows:\n" \
-        "\n" \
-        "    status, glyphs = text_to_glyphs(scaled_font : ScaledFont, text : str, False)\n" \
-        "or\n" \
-        "    status, glyphs, clusters, cluster_flags = text_to_glyphs(scaled_font : ScaledFont, text : str, True)\n" \
-        "\n" \
-        "The second element of the result tuple is a sequence of Glyph objects. If the third" \
-        " (cluster_mapping) argument is True, then the result tuple is expected to contain two" \
-        " more elements, being the sequence of clusters ((num_chars, num_glyphs) tuples) for" \
-        " mapping character indexes to glyph indexes, and the cluster flags.\n" \
-        "This callback is optional, and overrides the unicode_to_glyph_func if specified."
-        return \
-            self._text_to_glyphs_func
-    #end text_to_glyphs_func
+    def text_to_glyphs_func(self):
+        "the current text_to_glyphs_func, invoked as follows:\n\n    status, glyphs = text_to_glyphs(scaled_font : ScaledFont, text : str, False)\nor\n    status, glyphs, clusters, cluster_flags = text_to_glyphs(scaled_font : ScaledFont, text : str, True)\n\nThe second element of the result tuple is a sequence of Glyph objects. If the third (cluster_mapping) argument is True, then the result tuple is expected to contain two more elements, being the sequence of clusters ((num_chars, num_glyphs) tuples) for mapping character indexes to glyph indexes, and the cluster flags.\nThis callback is optional, and overrides the unicode_to_glyph_func if specified."
+        return self._text_to_glyphs_func
+
+    # end text_to_glyphs_func
 
     @text_to_glyphs_func.setter
-    def text_to_glyphs_func(self, text_to_glyphs) :
+    def text_to_glyphs_func(self, text_to_glyphs):
         self.set_text_to_glyphs_func(text_to_glyphs)
-    #end text_to_glyphs_func
 
-    def set_text_to_glyphs_func(self, text_to_glyphs) :
-        "sets a new value for the text_to_glyphs_func. Useful for method chaining; otherwise" \
-        " just assign to the text_to_glyphs_func property."
-        temp = self._wrap_text_to_glyphs_func # so the old value doesn't disappear until it's no longer needed
-        if text_to_glyphs != None :
-            def wrap_text_to_glyphs_func(c_scaled_font, c_utf8, utf8_len, c_glyphs, c_num_glyphs, c_clusters, c_num_clusters, c_cluster_flags) :
-                scaled_font = ScaledFont(cairo.cairo_scaled_font_reference(c_scaled_font))
+    # end text_to_glyphs_func
+
+    def set_text_to_glyphs_func(self, text_to_glyphs):
+        "sets a new value for the text_to_glyphs_func. Useful for method chaining; otherwise just assign to the text_to_glyphs_func property."
+        if text_to_glyphs is not None:
+
+            def wrap_text_to_glyphs_func(
+                c_scaled_font,
+                c_utf8,
+                utf8_len,
+                c_glyphs,
+                c_num_glyphs,
+                c_clusters,
+                c_num_clusters,
+                c_cluster_flags,
+            ):
+                scaled_font = ScaledFont(
+                    cairo.cairo_scaled_font_reference(c_scaled_font)
+                )
                 text = bytes(c_utf8[i] for i in range(utf8_len))
-                if self.pass_unicode :
+                if self.pass_unicode:
                     text = text.decode("utf-8")
-                #end if
+                # end if
                 cluster_mapping = bool(c_clusters)
                 result = text_to_glyphs(scaled_font, text, cluster_mapping)
-                if cluster_mapping :
+                if cluster_mapping:
                     status, glyphs, clusters, cluster_flags = result
-                else :
+                else:
                     status, glyphs = result[:2]
                     clusters = None
-                #end if
-                if glyphs != None :
+                # end if
+                if glyphs is not None:
                     nr_glyphs = len(glyphs)
-                    if c_num_glyphs.contents.value < nr_glyphs :
+                    if c_num_glyphs.contents.value < nr_glyphs:
                         c_glyphs.contents.value = cairo.cairo_glyph_allocate(nr_glyphs)
-                        if c_glyphs.contents.value == None :
+                        if c_glyphs.contents.value is None:
                             raise MemoryError("cairo_glyph_allocate failure")
-                              # don't bother trying to recover
-                        #end if
-                    #end if
+                            # don't bother trying to recover
+                        # end if
+                    # end if
                     c_num_glyphs.contents.value = nr_glyphs
                     dstarr = ct.cast(c_glyphs.contents, CAIRO.glyph_ptr_t)
-                    for i in range(nr_glyphs) :
+                    for i in range(nr_glyphs):
                         dst = dstarr[i]
                         src = glyphs[i]
                         dst.index = src.index
                         dst.x = src.pos.x
                         dst.y = src.pos.y
-                    #end for
-                #end if
-                if clusters != None :
-                    if self.pass_unicode :
+                    # end for
+                # end if
+                if clusters is not None:
+                    if self.pass_unicode:
                         # convert cluster num_chars to num_bytes
                         pos = 0
                         e_clusters = []
-                        for c in clusters :
+                        for c in clusters:
                             next_pos = pos + c[0]
-                            e_clusters.append \
-                              (
+                            e_clusters.append(
                                 (len(text[pos:next_pos].encode("utf-8")), c[1])
-                              )
+                            )
                             pos = next_pos
-                        #end for
-                    else :
+                        # end for
+                    else:
                         e_clusters = clusters
-                    #end if
+                    # end if
                     nr_clusters = len(clusters)
-                    if c_num_clusters.contents.value < nr_clusters :
-                        c_clusters.contents.value = cairo.cairo_text_cluster_allocate(nr_clusters)
-                        if c_clusters.contents.value == None :
+                    if c_num_clusters.contents.value < nr_clusters:
+                        c_clusters.contents.value = cairo.cairo_text_cluster_allocate(
+                            nr_clusters
+                        )
+                        if c_clusters.contents.value is None:
                             raise MemoryError("cairo_text_cluster_allocate failure")
-                              # don't bother trying to recover
-                        #end if
-                    #end if
+                            # don't bother trying to recover
+                        # end if
+                    # end if
                     c_num_clusters.contents.value = nr_clusters
                     dstarr = ct.cast(c_clusters.contents, CAIRO.cluster_ptr_t)
-                    for i in range(nr_clusters) :
+                    for i in range(nr_clusters):
                         dst = dstarr[i]
                         src = e_clusters[i]
                         dst.num_bytes = src[0]
                         dst.num_glyphs = src[1]
-                    #end for
+                    # end for
                     c_cluster_flags.contents.value = cluster_flags
-                #end if
-                return \
-                    status
-            #end wrap_text_to_glyphs_func
-            self._wrap_text_to_glyphs_func = CAIRO.user_scaled_font_text_to_glyphs_func_t(wrap_text_to_glyphs_func)
-        else :
+                # end if
+                return status
+
+            # end wrap_text_to_glyphs_func
+            self._wrap_text_to_glyphs_func = (
+                CAIRO.user_scaled_font_text_to_glyphs_func_t(wrap_text_to_glyphs_func)
+            )
+        else:
             self._wrap_text_to_glyphs_func = None
-        #end if
-        cairo.cairo_user_font_face_set_text_to_glyphs_func(self._cairobj, self._wrap_text_to_glyphs_func)
+        # end if
+        cairo.cairo_user_font_face_set_text_to_glyphs_func(
+            self._cairobj, self._wrap_text_to_glyphs_func
+        )
         self._text_to_glyphs_func = text_to_glyphs
-        return \
-            self
-    #end set_text_to_glyphs_func
+        return self
 
-    def copy(self) :
-        "returns a new UserFontFace with the same callbacks as this one, and a copy" \
-        " of the user_data. The purpose is so that Cairo’s scaled fonts will not" \
-        " recognize the copy as the same as the original font."
-        result = UserFontFace.create \
-          (
-            init_func = self.init_func,
-            render_glyph_func = self.render_glyph_func,
-            text_to_glyphs_func = self.text_to_glyphs_func,
-            unicode_to_glyph_func = self.unicode_to_glyph_func,
-          )
+    # end set_text_to_glyphs_func
+
+    def copy(self):
+        "returns a new UserFontFace with the same callbacks as this one, and a copy of the user_data. The purpose is so that Cairo’s scaled fonts will not recognize the copy as the same as the original font."
+        result = UserFontFace.create(
+            init_func=self.init_func,
+            render_glyph_func=self.render_glyph_func,
+            text_to_glyphs_func=self.text_to_glyphs_func,
+            unicode_to_glyph_func=self.unicode_to_glyph_func,
+        )
         result.pass_unicode = self.pass_unicode
-        for k in self.user_data :
+        for k in self.user_data:
             result.user_data[k] = self.user_data[k]
-        #end for
-        return \
-            result
-    #end copy
+        # end for
+        return result
 
-#end UserFontFace
+    # end copy
 
-FontExtents = def_struct_class \
-  (
-    name = "FontExtents",
-    ctname = "font_extents_t"
-  )
-class TextExtentsExtra :
+
+# end UserFontFace
+
+FontExtents = def_struct_class(name="FontExtents", ctname="font_extents_t")
+
+
+class TextExtentsExtra:
     # extra members for TextExtents class.
 
     @property
-    def bounds(self) :
+    def bounds(self):
         "returns the bounds of the text_extents as a Rect."
-        return \
-            Rect(self.x_bearing, self.y_bearing, self.width, self.height)
-    #end bounds
+        return Rect(self.x_bearing, self.y_bearing, self.width, self.height)
+
+    # end bounds
 
     @property
-    def advance(self) :
+    def advance(self):
         "returns the x- and y-advance of the text_extents as a Vector."
-        return \
-            Vector(self.x_advance, self.y_advance)
-    #end advance
+        return Vector(self.x_advance, self.y_advance)
 
-#end TextExtentsExtra
-TextExtents = def_struct_class \
-  (
-    name = "TextExtents",
-    ctname = "text_extents_t",
-    extra = TextExtentsExtra
-  )
+    # end advance
+
+
+# end TextExtentsExtra
+TextExtents = def_struct_class(
+    name="TextExtents", ctname="text_extents_t", extra=TextExtentsExtra
+)
 del TextExtentsExtra
 
-#+
+# +
 # XCB
-#-
+# -
 
-if HAS.XCB_SURFACE :
+if HAS.XCB_SURFACE:
 
-    def def_xcb_class(name, ctname, substructs = None, ignore = None) :
-
+    def def_xcb_class(name, ctname, substructs=None, ignore=None):
         ctstruct = getattr(XCB, ctname)
 
-        class result_class :
-
-            __slots__ = tuple(field[0] for field in ctstruct._fields_) # to forestall typos
+        class result_class:
+            __slots__ = tuple(
+                field[0] for field in ctstruct._fields_
+            )  # to forestall typos
             # for use by subclasses:
             _ignore = ignore
             _ctname = ctname
             _ctstruct = ctstruct
 
-            def __init__(self, **fields) :
+            def __init__(self, **fields):
                 unused = set(fields.keys())
-                for name, cttype in ctstruct._fields_ :
-                    if ignore == None or name not in ignore :
+                for name, cttype in ctstruct._fields_:
+                    if ignore is None or name not in ignore:
                         setattr(self, name, fields[name])
                         unused.remove(name)
-                    #end if
-                #end for
-                if len(unused) != 0 :
-                    raise TypeError("unrecognized fields: %s" % ", ".join(sorted(unused)))
-                #end if
-            #end __init__
+                    # end if
+                # end for
+                if len(unused) != 0:
+                    raise TypeError(
+                        "unrecognized fields: %s" % ", ".join(sorted(unused))
+                    )
+                # end if
 
-            def to_cairo(self) :
+            # end __init__
+
+            def to_cairo(self):
                 "returns a Cairo representation of the structure."
                 result = ctstruct()
-                for name, cttype in ctstruct._fields_ :
-                    if ignore == None or name not in ignore :
+                for name, cttype in ctstruct._fields_:
+                    if ignore is None or name not in ignore:
                         field = getattr(self, name)
-                        if substructs != None and name in substructs :
+                        if substructs is not None and name in substructs:
                             field = field.to_cairo()
-                        #end if
+                        # end if
                         setattr(result, name, field)
-                    #end if
-                #end for
-                return \
-                    result
-            #end to_cairo
+                    # end if
+                # end for
+                return result
 
-            def __getitem__(self, i) :
+            # end to_cairo
+
+            def __getitem__(self, i):
                 "allows the object to be coerced to a tuple."
-                return \
-                    getattr(self, ctstruct._fields_[i][0])
-            #end __getitem__
+                return getattr(self, ctstruct._fields_[i][0])
 
-            def __repr__(self) :
-                return \
-                    (
-                        "%s(%s)"
-                    %
-                        (
-                            name,
-                            ", ".join
-                              (
-                                "%s = %s" % (field[0], getattr(self, field[0]))
-                                for field in ctstruct._fields_
-                                if ignore == None or field[0] not in ignore
-                              ),
-                        )
-                    )
-            #end __repr__
+            # end __getitem__
 
-        #end result_class
-
-    #begin def_xcb_class
-        result_class.__name__ = name
-        result_class.__doc__ = \
-            (
-                "representation of an XCB %s structure. Fields are %s."
-                "\nCreate by passing all field values by name to the constructor;"
-                " convert an instance to Cairo form with  the to_cairo method."
-            %
-                (
-                    ctname,
-                    ", ".join
-                      (
-                        f[0] for f in ctstruct._fields_ if ignore == None or f[0] not in ignore
-                      ),
+            def __repr__(self):
+                return "{}({})".format(
+                    name,
+                    ", ".join(
+                        f"{field[0]} = {getattr(self, field[0])}"
+                        for field in ctstruct._fields_
+                        if ignore is None or field[0] not in ignore
+                    ),
                 )
+
+            # end __repr__
+
+        # end result_class
+
+        # begin def_xcb_class
+        result_class.__name__ = name
+        result_class.__doc__ = (
+            "representation of an XCB %s structure. Fields are %s."
+            "\nCreate by passing all field values by name to the constructor;"
+            " convert an instance to Cairo form with  the to_cairo method."
+            % (
+                ctname,
+                ", ".join(
+                    f[0]
+                    for f in ctstruct._fields_
+                    if ignore is None or f[0] not in ignore
+                ),
             )
-        return \
-            result_class
-    #end def_xcb_class
+        )
+        return result_class
 
-    XCBVisualType = def_xcb_class \
-      (
-        name = "XCBVisualType",
-        ctname = "visualtype_t",
-        ignore = {"pad0"}
-      )
-    XCBRenderDirectFormat = def_xcb_class \
-      (
-        name = "XCBRenderDirectFormat",
-        ctname = "render_directformat_t"
-      )
-    XCBScreen = def_xcb_class \
-      (
-        name = "XCBScreen",
-        ctname = "screen_t"
-      )
-    XCBRenderPictFormInfo = def_xcb_class \
-      (
-        name = "XCBRenderPictFormInfo",
-        ctname = "render_pictforminfo_t",
-        substructs = {"direct"},
-        ignore = {"pad0"}
-      )
+    # end def_xcb_class
 
-    del def_xcb_class # my work is done
+    XCBVisualType = def_xcb_class(
+        name="XCBVisualType", ctname="visualtype_t", ignore={"pad0"}
+    )
+    XCBRenderDirectFormat = def_xcb_class(
+        name="XCBRenderDirectFormat", ctname="render_directformat_t"
+    )
+    XCBScreen = def_xcb_class(name="XCBScreen", ctname="screen_t")
+    XCBRenderPictFormInfo = def_xcb_class(
+        name="XCBRenderPictFormInfo",
+        ctname="render_pictforminfo_t",
+        substructs={"direct"},
+        ignore={"pad0"},
+    )
 
-    class XCBSurface(Surface) :
-        "Surface that draws to an on-screen window via XCB. Do not instantiate" \
-        " directly; use one of the create methods. Note that all of these take a" \
-        " low-level address (e.g. ctypes.c_void_p) for the connection argument," \
-        " and equally low-level ctypes structures for other arguments; it will be" \
-        " up to the particular XCB binding to provide appropriate translations to" \
-        " these types from its connection and other objects."
+    del def_xcb_class  # my work is done
 
-        __slots__ = () # to forestall typos
+    class XCBSurface(Surface):
+        "Surface that draws to an on-screen window via XCB. Do not instantiate directly; use one of the create methods. Note that all of these take a low-level address (e.g. ctypes.c_void_p) for the connection argument, and equally low-level ctypes structures for other arguments; it will be up to the particular XCB binding to provide appropriate translations to these types from its connection and other objects."
+
+        __slots__ = ()  # to forestall typos
 
         @classmethod
-        def create(celf, connection, drawable, visual, width, height) :
+        def create(celf, connection, drawable, visual, width, height):
             c_visual = visual.to_cairo()
-            c_result = cairo.cairo_xcb_surface_create \
-              (
-                connection,
-                drawable,
-                ct.byref(c_visual),
-                width,
-                height
-              )
-            return \
-                celf(c_result)
-        #end create
+            c_result = cairo.cairo_xcb_surface_create(
+                connection, drawable, ct.byref(c_visual), width, height
+            )
+            return celf(c_result)
+
+        # end create
 
         @classmethod
-        def create_for_bitmap(celf, connection, screen, bitmap, width, height) :
+        def create_for_bitmap(celf, connection, screen, bitmap, width, height):
             c_screen = screen.to_cairo()
-            c_result = cairo.cairo_xcb_surface_create_for_bitmap \
-              (
-                connection,
-                ct.byref(c_screen),
-                bitmap,
-                width,
-                height
-              )
-            return \
-                celf(c_result)
-        #end create_for_bitmap
+            c_result = cairo.cairo_xcb_surface_create_for_bitmap(
+                connection, ct.byref(c_screen), bitmap, width, height
+            )
+            return celf(c_result)
+
+        # end create_for_bitmap
 
         @classmethod
-        def create_with_xrender_format(celf, connection, screen, drawable, format, width, height) :
+        def create_with_xrender_format(
+            celf, connection, screen, drawable, format, width, height
+        ):
             c_screen = screen.to_cairo()
             c_format = format.to_cairo()
-            c_result = cairo.cairo_xcb_surface_create_with_xrender_format \
-              (
+            c_result = cairo.cairo_xcb_surface_create_with_xrender_format(
                 connection,
                 ct.byref(c_screen),
                 drawable,
                 ct.byref(c_format),
                 width,
-                height
-              )
-            return \
-                celf(c_result)
-        #end create_with_xrender_format
+                height,
+            )
+            return celf(c_result)
 
-        def set_size(self, dims) :
+        # end create_with_xrender_format
+
+        def set_size(self, dims):
             dims = Vector.from_tuple(dims)
             cairo.cairo_xcb_surface_set_size(self._cairobj, dims.x, dims.y)
             self._check()
-        #end set_size
 
-        def set_drawable(self, drawable, dims) :
+        # end set_size
+
+        def set_drawable(self, drawable, dims):
             dims = Vector.from_tuple(dims)
-            cairo.cairo_xcb_surface_set_drawable(self._cairobj, drawable, dims.x, dims.y)
+            cairo.cairo_xcb_surface_set_drawable(
+                self._cairobj, drawable, dims.x, dims.y
+            )
             self._check()
-        #end set_drawable
 
-    #end XCBSurface
+        # end set_drawable
 
-#end if
+    # end XCBSurface
 
-#+
+# end if
+
+# +
 # Overall
-#-
+# -
 
-def _atexit() :
+
+def _atexit():
     # disable all __del__ methods at process termination to avoid segfaults
-    for cls in Context, Surface, Device, Pattern, Region, FontOptions, FontFace, ScaledFont :
+    for cls in (
+        Context,
+        Surface,
+        Device,
+        Pattern,
+        Region,
+        FontOptions,
+        FontFace,
+        ScaledFont,
+    ):
         delattr(cls, "__del__")
-    #end for
-#end _atexit
+    # end for
+
+
+# end _atexit
 atexit.register(_atexit)
 del _atexit
 
-del def_struct_class # my work is done
+del def_struct_class  # my work is done
