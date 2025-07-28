@@ -1,0 +1,6 @@
+290	./llms.txt
+251	./qahirah.py
+26	./COPYING
+13	./PLAN.md
+10	./README
+5	./TODO.md
